@@ -42,7 +42,6 @@ int main(int argc,char **argv) {
     UiPopup popup=POPUP_NONE;
     if(argc>3) {
         if(!strcmp(argv[3],"enabled")) { m.enabled=true; m.rio_enabled=true; }
-        if(!strcmp(argv[3],"mode")) popup=POPUP_MODE;
         if(!strcmp(argv[3],"alliance")) popup=POPUP_ALLIANCE;
         if(!strcmp(argv[3],"networks")) popup=POPUP_NETWORKS;
         if(!strcmp(argv[3],"show")) m.wifi_show_password=true;

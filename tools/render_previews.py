@@ -26,9 +26,9 @@ def fix_centered_text(path):
     tree.write(path,encoding="unicode")
 for path in (root/"docs/top.svg",root/"docs/bottom.svg"):
     fix_centered_text(path)
-scenes = [("drive", 0, None), ("setup", 1, None), ("inputs", 2, None),
-          ("wifi", 3, None), ("enabled", 0, "enabled"), ("mode-open", 0, "mode"),
-          ("alliance-open", 0, "alliance"), ("networks-open", 3, "networks"), ("password-show", 3, "show"), ("wifi-missing",3,"missing")]
+scenes = [("drive", 0, None), ("inputs", 1, None), ("wifi", 2, None),
+          ("enabled", 0, "enabled"), ("alliance-open", 0, "alliance"),
+          ("networks-open", 2, "networks"), ("password-show", 2, "show"), ("wifi-missing",2,"missing")]
 for name, page, popup in scenes:
     build = root / "build/previews" / name
     build.mkdir(parents=True, exist_ok=True)
@@ -48,16 +48,16 @@ def sheet(filename, items):
         draw.text((x, y), label, fill="#ecf4fa", font=font)
         result.paste(Image.open(out / (name + ".png")), (x, y + 25))
     result.save(out / filename)
-sheet("screens-closed.png", [("drive", "Drive / selectors closed"), ("setup", "Setup"),
-                             ("inputs", "Inputs"), ("wifi", "Wi-Fi / selectors closed")])
-sheet("selectors-open.png", [("mode-open", "Mode selector open"), ("alliance-open", "Alliance selector open"),
+sheet("screens-closed.png", [("drive", "Drive / alliance and team"), ("inputs", "Inputs"),
+                             ("wifi", "Wi-Fi / selector closed"), ("enabled", "Full-screen Disable")])
+sheet("selectors-open.png", [("alliance-open", "Alliance selector open"), ("wifi-missing", "Wi-Fi / no team network found"),
                              ("networks-open", "Found networks selector"), ("password-show", "Wi-Fi / password visible")])
 result = Image.new("RGB", (440, 520), "#050a10")
 result.paste(Image.open(out / "status.png"), (20, 12))
 result.paste(Image.open(out / "drive.png"), (60, 266))
 result.save(root / "docs/ui-preview.png")
 result = Image.new("RGB", (660, 500), "#050a10")
-for name, xy in [("setup", (0, 0)), ("inputs", (340, 0)), ("enabled", (0, 260)), ("wifi", (340, 260))]:
+for name, xy in [("drive", (0, 0)), ("inputs", (340, 0)), ("enabled", (0, 260)), ("wifi", (340, 260))]:
     result.paste(Image.open(out / (name + ".png")), xy)
 result.save(root / "docs/ui-states.png")
 print(out)

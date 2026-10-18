@@ -18,13 +18,13 @@ These are layout renders, not console screenshots.
 
 ## Connect and drive
 
-1. In **Setup**, enter your team number. The robot address is automatic: team 1234 → `10.12.34.2`.
+1. On **Drive**, enter your team number. The robot address is automatic: team 1234 → `10.12.34.2`.
 2. Open **Wi-Fi** and wait for the scan. Tap **Join** beside the recommended team network, or select another detected network and tap **Join selected network**. Enter its password when prompted.
 3. Wait for **CONNECTED** and robot code **Running**. Check your controls on **Inputs**.
-4. On **Drive**, select your mode and alliance station. Center the sticks, release the physical controls, and tap **ENABLE**.
+4. On **Drive**, select your alliance station. Center the sticks, release the physical controls, and tap **ENABLE**.
 5. The entire bottom screen becomes a red **DISABLE** button. Tap anywhere to stop.
 
-The app starts disabled. HOME, sleep, connection loss, or missing robot code also disable it. Returning or reconnecting never enables it automatically. Physical buttons are robot inputs; there are no enable/disable button combos.
+The app supports **Teleop only** and starts disabled. HOME, sleep, connection loss, or missing robot code also disable it. Returning or reconnecting never enables it automatically. Physical buttons are robot inputs; there are no enable/disable button combos.
 
 For the first hardware test, secure the robot and raise its wheels. **ENABLE REQUESTED** shows what the app requests; **ROBOT REPORTS** shows the robot's reported state.
 

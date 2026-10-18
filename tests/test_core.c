@@ -8,19 +8,20 @@
 static void packets(void) {
     uint8_t out[DS_PACKET_MAX];
     Controls j = {{-127, 0, 127, -1}, 0x341, 315};
-    Command c = {65535, 2, true, false, 5};
-    const uint8_t expected[] = {255,255,1,6,0,5,12,12,4,129,0,127,255,10,3,65,1,1,59};
+    Command c = {65535, true, false, 5};
+    const uint8_t expected[] = {255,255,1,4,0,5,12,12,4,129,0,127,255,10,3,65,1,1,59};
     assert(ds_packet(out, sizeof out, &c, &j, NULL) == sizeof expected);
     assert(memcmp(out, expected, sizeof expected) == 0);
     assert(ds_packet(out, sizeof expected - 1, &c, &j, NULL) == 0);
-    c.estop = true; ds_packet(out, sizeof out, &c, &j, NULL); assert(out[3] == 0x82);
+    c.estop = true; ds_packet(out, sizeof out, &c, &j, NULL); assert(out[3] == 0x80);
     c.sequence++; assert(c.sequence == 0);
     Calendar cal = {0x00010203, 4, 5, 6, 7, 9, 126};
     const uint8_t date[] = {11,15,0,1,2,3,4,5,6,7,9,126,4,16,'U','T','C'};
     assert(ds_packet(out, sizeof out, &c, &j, &cal) == 36);
     assert(memcmp(out + 6, date, sizeof date) == 0);
-    c.mode = 3; assert(ds_packet(out, sizeof out, &c, &j, NULL) == 0);
-    c.mode = 0; c.alliance = 6; assert(ds_packet(out, sizeof out, &c, &j, NULL) == 0);
+    c.estop=false; c.enabled=false;
+    ds_packet(out,sizeof out,&c,&j,NULL); assert(out[3]==0);
+    c.alliance = 6; assert(ds_packet(out, sizeof out, &c, &j, NULL) == 0);
 }
 static void status(void) {
     RobotStatus s;

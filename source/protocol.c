@@ -6,10 +6,11 @@ static uint16_t get16(const uint8_t *p) { return (uint16_t)((p[0] << 8) | p[1]);
 size_t ds_packet(uint8_t *p, size_t cap, const Command *c,
                  const Controls *j, const Calendar *t) {
     const size_t needed = 19 + (t ? 17 : 0);
-    if (!p || !c || !j || cap < needed || c->mode > 2 || c->alliance > 5) return 0;
+    if (!p || !c || !j || cap < needed || c->alliance > 5) return 0;
     put16(p, c->sequence);
     p[2] = 1;
-    p[3] = c->mode | (c->enabled && !c->estop ? 4 : 0) | (c->estop ? 0x80 : 0);
+    /* Teleop only: autonomous/test mode bits are always zero. */
+    p[3] = (c->enabled && !c->estop ? 4 : 0) | (c->estop ? 0x80 : 0);
     p[4] = 0; /* No reboot/restart requests. */
     p[5] = c->alliance;
     size_t n = 6;

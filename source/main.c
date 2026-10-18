@@ -31,10 +31,10 @@ static Link link_state;
 static struct sockaddr_in robot_addr;
 static int sock = -1;
 static uint16_t sequence;
-static uint8_t mode, alliance;
+static uint8_t alliance;
 static unsigned team_number;
 static char target[16];
-static char message[80] = "Set your team number in Setup.";
+static char message[80] = "Set your team number on Drive.";
 static bool configured;
 static uint32_t lifecycle_event;
 
@@ -106,7 +106,7 @@ static Calendar calendar_now(void) {
 static bool transmit(const Controls *controls, uint64_t now, bool force_disabled) {
     if (sock < 0 || !configured) return false;
     uint8_t data[DS_PACKET_MAX];
-    Command cmd = {sequence++, mode, safety.enabled && !force_disabled, safety.estop, alliance};
+    Command cmd = {sequence++, safety.enabled && !force_disabled, safety.estop, alliance};
     Calendar cal = calendar_now();
     bool time_needed = !link_connected(&link_state, now) || link_state.robot.request_time;
     size_t len = ds_packet(data, sizeof data, &cmd, controls, time_needed ? &cal : NULL);
@@ -228,7 +228,7 @@ static void draw(const Controls *c, uint64_t now, uint32_t wifi) {
         .configured=configured, .neutral=neutral(c),
         .voltage=link_state.robot.voltage,
         .age_ms=connected ? (unsigned)(now-link_state.last_rx) : 0,
-        .mode=mode, .alliance=alliance, .team=team_number, .controls=*c, .target=target, .message=message,
+        .alliance=alliance, .team=team_number, .controls=*c, .target=target, .message=message,
         .wifi_ssid=wifi_setup.ssid, .wifi_suggestion=recommended>=0 ? wifi_scan.networks[recommended].ssid:NULL,
         .wifi_password=wifi_setup.password, .wifi_show_password=show_password,
         .networks=wifi_scan.networks, .network_count=wifi_scan.count, .network_page=network_page,
@@ -323,12 +323,9 @@ int main(int argc, char **argv) {
                 } else if(action==UI_WIFI_CONNECT) {
                     if(wifi_setup.busy) wifi_setup_cancel(); else join_network();
                 }
-                else if (action==UI_OPEN_MODE) popup=POPUP_MODE;
                 else if (action==UI_OPEN_ALLIANCE) popup=POPUP_ALLIANCE;
                 else if (action==UI_CLOSE_POPUP) popup=POPUP_NONE;
-                else if (action>=UI_TELEOP && action<=UI_AUTO) {
-                    mode=action-UI_TELEOP; popup=POPUP_NONE; safety_disable(&safety);
-                } else if (action>=UI_RED1 && action<=UI_BLUE3) {
+                else if (action>=UI_RED1 && action<=UI_BLUE3) {
                     alliance=action-UI_RED1; popup=POPUP_NONE; safety_disable(&safety); if(configured) save_config();
                 } else if (action==UI_TEAM) edit_team();
             }

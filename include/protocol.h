@@ -12,7 +12,6 @@
 typedef struct { int8_t axes[4]; uint16_t buttons; int16_t pov; } Controls;
 typedef struct {
     uint16_t sequence;
-    uint8_t mode;
     bool enabled, estop;
     uint8_t alliance;
 } Command;

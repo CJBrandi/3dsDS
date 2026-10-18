@@ -5,7 +5,7 @@
 ## Protocol scope
 
 - Standalone UDP control to port 1110, reply socket bound to 1150, nominal 20 ms sends.
-- Version 1, wrapping 16-bit sequence, mode/enable/E-stop, alliance, one joystick, UTC date/timezone handshake tags.
+- Version 1, wrapping 16-bit sequence, Teleop-only control, enable/E-stop, alliance, one joystick, UTC date/timezone handshake tags.
 - Robot-code bit from trace byte 4 (`0x20`); battery from bytes 5–6 with a `/256` fraction. These correct the attached Python implementation's telemetry parsing.
 - Replies must come from the configured robot IPv4 address, have a valid header/tag layout, echo a recently sent sequence, and advance the response sequence. Duplicates, old replies, and malformed packets cannot refresh link health. This is freshness checking, not cryptographic authentication.
 - Date tags are resent while disconnected or requested by the robot. The calendar uses the console's clock as UTC; set that clock correctly if robot timestamps matter.
@@ -36,7 +36,7 @@ python3 tools/mock_robot.py --bind 0.0.0.0
 
 Because the app accepts only team numbers, the mock PC must have the team's derived address (for example `10.12.34.2` for team 1234) on a dedicated test network that does not contain a real robot. Do not assign that address if it would conflict with an existing roboRIO. The mock prints all controls and reports 12.50 V and running code. Verify touch enable, the full-screen Disable target, and physical button independence. Repeat with `--drop-after 10` for link loss and `--no-code` for the code interlock. This is not a substitute for real roboRIO compatibility testing.
 
-Before normal use, verify disabled startup, axis signs, touch enable/disable, Wi-Fi loss/recovery, lid close/reopen, HOME/resume, robot-code restart, and mode changes with actuators secured. Never run another driver station against the same roboRIO simultaneously.
+Before normal use, verify disabled startup, axis signs, touch enable/disable, Wi-Fi loss/recovery, lid close/reopen, HOME/resume, robot-code restart with actuators secured. Never run another driver station against the same roboRIO simultaneously.
 
 ## GitHub builds and releases
 

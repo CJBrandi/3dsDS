@@ -40,7 +40,7 @@ jobs:
           python3 - <<'PY'
           import os, re
           ref = os.environ['BUILD_REF']
-          version = ref.removeprefix('refs/tags/v') if ref.startswith('refs/tags/') else '0.3.0'
+          version = ref.removeprefix('refs/tags/v') if ref.startswith('refs/tags/') else '0.3.1'
           match = re.fullmatch(r'(\d+)\.(\d+)\.(\d+)(?:-[A-Za-z0-9.-]+)?', version)
           if not match:
               raise SystemExit('Tags must be vMAJOR.MINOR.PATCH, optionally with a prerelease suffix')

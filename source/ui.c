@@ -9,7 +9,6 @@
 #define TEAL 0x49dfbd
 #define AMBER 0xffcf75
 #define RED 0xff6b78
-static const char *modes[] = {"TELEOP", "TEST", "AUTO"};
 static void text(float x, float y, float size, uint32_t color, const char *s) {
     paint_text(x, y, size, color, s);
 }
@@ -47,9 +46,9 @@ void ui_draw(const UiModel *m, UiPage page, UiPopup popup) {
     metric(140,"ROBOT CODE",m->connected && m->code ? "Running" : "Not ready",m->connected && m->code ? TEAL : AMBER);
     if (m->connected) snprintf(s,sizeof s,"%u ms",m->age_ms); else snprintf(s,sizeof s,"No reply");
     metric(266,"REPLY AGE",s,m->connected ? WHITE : MUTED);
-    snprintf(s,sizeof s,"%s  /  %s %u",modes[m->mode],m->alliance < 3 ? "RED" : "BLUE",m->alliance%3+1);
+    snprintf(s,sizeof s,"TELEOP  /  %s %u",m->alliance < 3 ? "RED" : "BLUE",m->alliance%3+1);
     text(14,176,12,WHITE,s);
-    text(14,195,11,MUTED,m->configured ? m->target : "Set your team number in Setup");
+    text(14,195,11,MUTED,m->configured ? m->target : "Set your team number on Drive");
     text(246,176,10,MUTED,"ROBOT REPORTS");
     text(246,193,12,m->connected && m->rio_enabled ? TEAL : MUTED,
          !m->connected ? "Unknown" : m->rio_enabled ? "Enabled" : "Disabled");
@@ -67,50 +66,37 @@ void ui_draw(const UiModel *m, UiPage page, UiPopup popup) {
         paint_end();
         return;
     }
-    button(8,6,72,30,"Drive",page==PAGE_DRIVE,false);
-    button(85,6,72,30,"Setup",page==PAGE_SETUP,false);
-    button(162,6,72,30,"Inputs",page==PAGE_INPUTS,false);
-    button(239,6,73,30,"Wi-Fi",page==PAGE_WIFI,false);
+    button(8,6,96,30,"Drive",page==PAGE_DRIVE,false);
+    button(112,6,96,30,"Inputs",page==PAGE_INPUTS,false);
+    button(216,6,96,30,"Wi-Fi",page==PAGE_WIFI,false);
     if (page == PAGE_DRIVE) {
-        text(12,46,9,MUTED,"ROBOT MODE");
-        button(12,61,296,31,modes[m->mode],false,false);
-        text(280,69,13,TEAL,"v");
-        text(12,103,9,MUTED,"ALLIANCE STATION");
+        text(12,46,9,MUTED,"ALLIANCE STATION");
         snprintf(s,sizeof s,"%s %u",m->alliance<3 ? "RED":"BLUE",m->alliance%3+1);
-        button(12,118,296,31,s,false,false);
-        text(280,126,13,TEAL,"v");
+        button(12,61,296,31,s,false,false);
+        text(280,69,13,TEAL,"v");
+        text(12,103,11,MUTED,"Team Number:");
+        button(12,118,296,31,"",false,false);
+        if(m->configured) {
+            snprintf(s,sizeof s,"%u",m->team);
+            text(20,126,16,WHITE,s);
+        }
         bool ready=!m->wifi_busy && m->configured && m->connected && m->code && !m->estop && m->neutral;
         box(12,166,296,43,ready ? 0x17664f : PANEL);
         paint_text_centered(160,187.5f,25,ready ? WHITE : MUTED,"ENABLE");
         const char *reason=m->estop ? "Reset robot E-stop and restart app" :
-            !m->configured ? "Set your team number in Setup" :
+            !m->configured ? "Set your team number on Drive" :
             !m->connected ? "Waiting for robot connection" :
             !m->code ? "Waiting for robot code" :
             !m->neutral ? "Center sticks and release robot buttons" : "Tap ENABLE when ready";
         text(12,219,11,ready ? TEAL : AMBER,reason);
-        if(popup!=POPUP_NONE) {
-            box(6,40,308,195,0x0c131d);
-            text(16,45,11,MUTED,popup==POPUP_MODE ? "SELECT MODE":"SELECT ALLIANCE STATION");
-            int count=popup==POPUP_MODE ? 3:6;
-            int height=popup==POPUP_MODE ? 45:26;
-            for(int i=0;i<count;i++) {
-                if(popup==POPUP_MODE) snprintf(s,sizeof s,"%s",modes[i]);
-                else snprintf(s,sizeof s,"%s %u",i<3 ? "RED":"BLUE",i%3+1);
-                button(12,64+i*height,296,height-2,s,
-                    popup==POPUP_MODE ? m->mode==i:m->alliance==i,false);
+        if(popup==POPUP_ALLIANCE) {
+            box(6,40,308,195,BG);
+            text(16,45,11,MUTED,"SELECT ALLIANCE STATION");
+            for(int i=0;i<6;i++) {
+                snprintf(s,sizeof s,"%s %u",i<3 ? "RED":"BLUE",i%3+1);
+                button(12,64+i*26,296,24,s,m->alliance==i,false);
             }
         }
-    } else if (page == PAGE_SETUP) {
-        text(12,45,10,MUTED,"CONNECTION");
-        button(12,64,296,45,"",false,m->enabled);
-        text(22,69,9,MUTED,"TEAM NUMBER / TAP TO EDIT");
-        if(m->configured) snprintf(s,sizeof s,"Team %u",m->team); else snprintf(s,sizeof s,"Not configured");
-        text(22,84,16,WHITE,s);
-        text(12,122,10,MUTED,"ROBOT ADDRESS (AUTOMATIC)");
-        text(12,139,13,WHITE,m->configured ? m->target : "Enter your team number above");
-        text(12,163,10,MUTED,"Configure your connection on the Wi-Fi tab.");
-        text(12,178,10,MUTED,"2.4 GHz network / direct UDP connection");
-
     } else if(page==PAGE_WIFI) {
         bool found=m->wifi_suggestion && m->wifi_suggestion[0];
         text(12,44,9,found ? TEAL:MUTED,found ? "Join Recommended Network:":"No team network found in scan");
@@ -185,22 +171,15 @@ UiAction ui_touch(UiPage page,UiPopup popup,int x,int y,bool enabled) {
             if(inside(x,y,12,207,80,27)) return UI_NETWORK_PREV;
             if(inside(x,y,228,207,80,27)) return UI_NETWORK_NEXT;
         } else {
-            int count=popup==POPUP_MODE ? 3:6;
-            int height=popup==POPUP_MODE ? 45:26;
-            UiAction first=popup==POPUP_MODE ? UI_TELEOP:UI_RED1;
-            for(int i=0;i<count;i++) if(inside(x,y,12,64+i*height,296,height-2)) return first+i;
+            for(int i=0;i<6;i++) if(inside(x,y,12,64+i*26,296,24)) return UI_RED1+i;
         }
         return UI_CLOSE_POPUP;
     }
-    for(int i=0;i<4;i++) if(inside(x,y,8+77*i,6,i==3 ? 73:72,30)) return UI_TAB_DRIVE+i;
+    for(int i=0;i<3;i++) if(inside(x,y,8+104*i,6,96,30)) return UI_TAB_DRIVE+i;
     if(page==PAGE_DRIVE) {
-        if(inside(x,y,12,61,296,31)) return UI_OPEN_MODE;
-        if(inside(x,y,12,118,296,31)) return UI_OPEN_ALLIANCE;
+        if(inside(x,y,12,61,296,31)) return UI_OPEN_ALLIANCE;
+        if(inside(x,y,12,118,296,31)) return UI_TEAM;
         if(inside(x,y,12,166,296,43)) return UI_ENABLE;
-    }
-    if(page==PAGE_SETUP) {
-        if(inside(x,y,12,64,296,45)) return UI_TEAM;
-
     }
     if(page==PAGE_WIFI) {
         if(inside(x,y,240,43,68,37)) return UI_WIFI_SUGGEST;
