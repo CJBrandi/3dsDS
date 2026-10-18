@@ -28,10 +28,16 @@ void paint_end(void) { fputs("</svg>",file); fclose(file); }
 int main(int argc,char **argv) {
     directory=argc>1 ? argv[1]:"docs";
     UiModel m={.connected=true,.wifi=true,.code=true,.configured=true,.voltage=12.54f,
-        .age_ms=18,.target="10.12.34.2",.message="Ready. Hold ZL + START to arm.",
-        .controls={{25,-40,0,0},5,-1}};
+        .age_ms=18,.neutral=true,.team=1234,.target="10.12.34.2",.message="Ready. Tap ENABLE on the Drive screen.",
+        .controls={{0,0,0,0},0,-1}};
     UiPage page=argc>2 ? (UiPage)atoi(argv[2]):PAGE_DRIVE;
-    if(argc>3) { m.enabled=true; m.rio_enabled=true; }
-    ui_draw(&m,page);
+    UiPopup popup=POPUP_NONE;
+    if(argc>3) {
+        if(argv[3][0]=='e') { m.enabled=true; m.rio_enabled=true; }
+        if(argv[3][0]=='m') popup=POPUP_MODE;
+        if(argv[3][0]=='a') popup=POPUP_ALLIANCE;
+    }
+    if(page==PAGE_INPUTS) { m.controls=(Controls){{25,-40,0,0},5,45}; m.neutral=false; }
+    ui_draw(&m,page,popup);
     return 0;
 }

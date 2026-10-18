@@ -5,7 +5,7 @@ static uint16_t get16(const uint8_t *p) { return (uint16_t)((p[0] << 8) | p[1]);
 
 size_t ds_packet(uint8_t *p, size_t cap, const Command *c,
                  const Controls *j, const Calendar *t) {
-    const size_t needed = 18 + (t ? 17 : 0);
+    const size_t needed = 19 + (t ? 17 : 0);
     if (!p || !c || !j || cap < needed || c->mode > 2 || c->alliance > 5) return 0;
     put16(p, c->sequence);
     p[2] = 1;
@@ -22,10 +22,10 @@ size_t ds_packet(uint8_t *p, size_t cap, const Command *c,
         p[n++] = 4; p[n++] = 0x10;
         p[n++] = 'U'; p[n++] = 'T'; p[n++] = 'C';
     }
-    p[n++] = 11; p[n++] = 0x0c; /* Size includes ID, excludes size byte. */
+    p[n++] = 12; p[n++] = 0x0c; /* Size includes ID, excludes size byte. */
     p[n++] = 4;
     for (int i = 0; i < 4; ++i) p[n++] = (uint8_t)j->axes[i];
-    p[n++] = 7; p[n++] = j->buttons & 0x7f;
+    p[n++] = 10; put16(p+n,j->buttons & 0x03ff); n+=2;
     p[n++] = 1; put16(p + n, (uint16_t)j->pov); n += 2;
     return n;
 }

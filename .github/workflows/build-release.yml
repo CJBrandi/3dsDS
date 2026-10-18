@@ -27,8 +27,6 @@ jobs:
   build:
     name: Build 3DSX and CIA
     runs-on: ubuntu-24.04
-    container:
-      image: devkitpro/devkitarm@sha256:116afba8df8453961de2936ffab20dd441edf4d682856c1ec8b0e53d7ed0bbf5
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -53,8 +51,20 @@ jobs:
           PY
       - name: Fetch checksum-verified CIA tools
         run: make cia-tools
-      - name: Compile and verify install packages
-        run: make -j2 release
+      - name: Compile using the pinned 3DS SDK
+        run: |
+          docker run --rm --user "$(id -u):$(id -g)" \
+            --volume "$PWD:/src" --workdir /src \
+            devkitpro/devkitarm@sha256:116afba8df8453961de2936ffab20dd441edf4d682856c1ec8b0e53d7ed0bbf5 \
+            make -j2 all
+      - name: Package CIA on Ubuntu 24.04 and verify downloads
+        run: |
+          build/cia-tools/bannertool makebanner -i assets/banner.png -a assets/silence.wav -o build/banner.bnr
+          build/cia-tools/makerom -f cia -o dist/3dsDS.cia -target t -rsf assets/app.rsf \
+            -elf dist/3dsDS.elf -icon dist/3dsDS.smdh -banner build/banner.bnr \
+            -major "$VERSION_MAJOR" -minor "$VERSION_MINOR" -micro "$VERSION_MICRO"
+          python3 tools/package.py
+          python3 tools/check_artifacts.py
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: 3dsDS-install-files

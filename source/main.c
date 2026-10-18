@@ -20,52 +20,59 @@
 #define CONFIG_DIR "sdmc:/3ds/3dsDS"
 #define CONFIG_PATH CONFIG_DIR "/config.txt"
 static UiPage page;
+static UiPopup popup;
 static Safety safety;
 static Link link_state;
 static struct sockaddr_in robot_addr;
 static int sock = -1;
 static uint16_t sequence;
 static uint8_t mode, alliance;
+static unsigned team_number;
 static char target[16];
-static char message[80] = "Set your robot address in Setup.";
+static char message[80] = "Set your team number in Setup.";
 static bool configured;
 static uint32_t lifecycle_event;
 
 static uint64_t now_ms(void) { return svcGetSystemTick() / (SYSCLOCK_ARM11 / 1000); }
+static bool transmit(const Controls *controls, uint64_t now, bool force_disabled);
 static void lifecycle(APT_HookType hook, void *unused) {
-    (void)hook; (void)unused;
+    (void)unused;
+    /* libctru invokes these hooks synchronously before entering HOME/sleep. */
+    safety_disable(&safety);
+    if(hook==APTHOOK_ONSUSPEND || hook==APTHOOK_ONSLEEP || hook==APTHOOK_ONEXIT) {
+        Controls empty={{0},0,-1};
+        transmit(&empty,now_ms(),true);
+    }
     __atomic_store_n(&lifecycle_event, 1, __ATOMIC_RELEASE);
 }
-static bool set_target(const char *ip) {
+static bool set_team(unsigned team) {
+    if(team<1 || team>25599) return false;
+    snprintf(target,sizeof target,"10.%u.%u.2",team/100,team%100);
     struct in_addr address;
-    if (inet_pton(AF_INET, ip, &address) != 1) return false;
-    uint32_t n = ntohl(address.s_addr);
-    if ((n >> 24) == 0 || (n >> 24) == 127 || (n >> 24) >= 224 || (n & 255) == 255) return false;
-    memset(&robot_addr, 0, sizeof robot_addr);
-    robot_addr.sin_family = AF_INET; robot_addr.sin_port = htons(DS_PORT);
-    robot_addr.sin_addr = address;
-    snprintf(target, sizeof target, "%s", ip);
-    configured = true;
-    memset(&link_state, 0, sizeof link_state);
-    safety_disable(&safety);
+    if(inet_pton(AF_INET,target,&address)!=1) return false;
+    memset(&robot_addr,0,sizeof robot_addr);
+    robot_addr.sin_family=AF_INET; robot_addr.sin_port=htons(DS_PORT);
+    robot_addr.sin_addr=address;
+    team_number=team; configured=true;
+    memset(&link_state,0,sizeof link_state); safety_disable(&safety);
     return true;
 }
 static void save_config(void) {
     mkdir("sdmc:/3ds", 0777); mkdir(CONFIG_DIR, 0777);
     FILE *f = fopen(CONFIG_PATH ".tmp", "w");
     if (!f) { snprintf(message, sizeof message, "SD save failed; using session settings."); return; }
-    bool ok = fprintf(f, "%s %u\n", target, alliance) > 0;
+    bool ok = fprintf(f, "%u %u\n", team_number, alliance) > 0;
     if (fclose(f) != 0) ok = false;
     if (!ok || rename(CONFIG_PATH ".tmp", CONFIG_PATH) != 0)
         snprintf(message, sizeof message, "SD save failed; using session settings.");
 }
 static void load_config(void) {
-    char ip[16]; unsigned a;
+    unsigned team,a;
     FILE *f = fopen(CONFIG_PATH, "r");
     if (!f) return;
-    if (fscanf(f, "%15s %u", ip, &a) == 2 && a <= 5 && set_target(ip)) {
+    if (fscanf(f, "%u %u", &team, &a) == 2 && a <= 5 && set_team(team)) {
         alliance = a;
-        snprintf(message, sizeof message, "Ready. Hold ZL + START to arm.");
+        snprintf(message, sizeof message, "Ready. Tap ENABLE on the Drive screen.");
     }
     fclose(f);
 }
@@ -121,51 +128,44 @@ static Controls read_controls(uint32_t held) {
     hidCircleRead(&left); hidCstickRead(&right);
     Controls c = {{ds_axis(left.dx, 156, 15), ds_axis(-left.dy, 156, 15),
                    ds_axis(right.dx, 156, 15), ds_axis(-right.dy, 156, 15)}, 0, -1};
-    const uint32_t keys[7] = {KEY_A, KEY_B, KEY_X, KEY_Y, KEY_L, KEY_R, KEY_ZR};
-    for (int i = 0; i < 7; ++i) if (held & keys[i]) c.buttons |= 1u << i;
+    const uint32_t keys[10] = {KEY_A, KEY_B, KEY_X, KEY_Y, KEY_L, KEY_R, KEY_ZR, KEY_ZL, KEY_SELECT, KEY_START};
+    for (int i = 0; i < 10; ++i) if (held & keys[i]) c.buttons |= 1u << i;
     c.pov = ds_pov(held & KEY_DUP, held & KEY_DRIGHT, held & KEY_DDOWN, held & KEY_DLEFT);
     return c;
 }
 static bool neutral(const Controls *c) {
     return !c->axes[0] && !c->axes[1] && !c->axes[2] && !c->axes[3] && !c->buttons && c->pov == -1;
 }
-static void edit_address(bool team) {
-    Controls empty = {{0}, 0, -1};
-    safety_disable(&safety);
-    transmit(&empty, now_ms(), true);
+static void edit_team(void) {
+    Controls empty={{0},0,-1};
+    safety_disable(&safety); transmit(&empty,now_ms(),true);
     SwkbdState kb;
-    swkbdInit(&kb, team ? SWKBD_TYPE_NUMPAD : SWKBD_TYPE_NORMAL, 2, team ? 5 : 15);
-    swkbdSetHintText(&kb, team ? "FRC team number (1-25599)" : "Robot IPv4, e.g. 10.12.34.2");
-    if (!team && configured) swkbdSetInitialText(&kb, target);
-    char text[32] = {0}, ip[16] = {0};
-    if (swkbdInputText(&kb, text, sizeof text) == SWKBD_BUTTON_RIGHT) {
-        bool valid = true;
-        if (team) {
-            char *end; unsigned long value = strtoul(text, &end, 10);
-            valid = text[0] && !*end && value >= 1 && value <= 25599;
-            if (valid) snprintf(ip, sizeof ip, "10.%lu.%lu.2", value / 100, value % 100);
-        } else snprintf(ip, sizeof ip, "%.15s", text);
-        if (valid && set_target(ip)) {
-            snprintf(message, sizeof message, "Address saved. Robot disabled."); save_config();
-        } else snprintf(message, sizeof message, "Invalid address/team. No changes.");
+    swkbdInit(&kb,SWKBD_TYPE_NUMPAD,2,5);
+    swkbdSetHintText(&kb,"FRC team number (1-25599)");
+    char text[16]={0};
+    if(configured) { snprintf(text,sizeof text,"%u",team_number); swkbdSetInitialText(&kb,text); }
+    if(swkbdInputText(&kb,text,sizeof text)==SWKBD_BUTTON_RIGHT) {
+        char *end; unsigned long team=strtoul(text,&end,10);
+        if(text[0] && !*end && team>=1 && team<=25599 && set_team((unsigned)team)) {
+            snprintf(message,sizeof message,"Team %u saved. Robot disabled.",team_number); save_config();
+        } else snprintf(message,sizeof message,"Invalid team number. No changes.");
     }
-    memset(&link_state, 0, sizeof link_state);
+    memset(&link_state,0,sizeof link_state);
     hidScanInput(); /* Discard keyboard dismiss button edges. */
     safety_disable(&safety);
 }
-static void draw(const Controls *c, uint64_t now, uint32_t wifi, bool deadman) {
+static void draw(const Controls *c, uint64_t now, uint32_t wifi) {
     bool connected=link_connected(&link_state,now);
     UiModel model={
         .connected=connected, .wifi=wifi!=0, .code=link_state.robot.code,
         .enabled=safety.enabled, .rio_enabled=link_state.robot.enabled,
         .estop=safety.estop, .brownout=link_state.robot.brownout,
-        .arming=safety.arming, .configured=configured, .deadman=deadman,
+        .configured=configured, .neutral=neutral(c),
         .voltage=link_state.robot.voltage,
-        .arm_progress=safety.arming ? (now-safety.arm_since)/1000.0f : 0,
         .age_ms=connected ? (unsigned)(now-link_state.last_rx) : 0,
-        .mode=mode, .alliance=alliance, .controls=*c, .target=target, .message=message
+        .mode=mode, .alliance=alliance, .team=team_number, .controls=*c, .target=target, .message=message
     };
-    ui_draw(&model,page);
+    ui_draw(&model,page,popup);
 }
 int main(int argc, char **argv) {
     (void)argc; (void)argv;
@@ -214,33 +214,39 @@ int main(int argc, char **argv) {
                 next_wifi = now + 200;
             }
             receive_status(now);
-            SafetyInput input = {
-                configured && wifi && link_connected(&link_state, now), link_state.robot.code,
-                link_state.robot.estop, (held & KEY_ZL) != 0, (held & KEY_START) != 0,
-                (held & KEY_SELECT) != 0,
-                (held & (KEY_L | KEY_R | KEY_SELECT)) == (KEY_L | KEY_R | KEY_SELECT), neutral(&controls)
-            };
-            safety_step(&safety, &input, now);
-            bool touch_stop=false;
+            bool touch_stop=false, touch_enable=false;
             if (down & KEY_TOUCH) {
                 touchPosition pos; hidTouchRead(&pos);
-                UiAction action=ui_touch(page,pos.px,pos.py,safety.enabled);
+                UiAction action=ui_touch(page,popup,pos.px,pos.py,safety.enabled);
                 if (action>=UI_TAB_DRIVE && action<=UI_TAB_INPUTS) page=action-UI_TAB_DRIVE;
-                else if (action==UI_DISABLE || action==UI_ESTOP) {
+                else if (action==UI_DISABLE) {
                     safety_disable(&safety);
-                    if (action==UI_ESTOP) safety.estop=true;
                     touch_stop=true;
-                } else if (action>=UI_TELEOP && action<=UI_AUTO) {
-                    mode=action-UI_TELEOP; safety_disable(&safety);
+                } else if (action==UI_ENABLE) touch_enable=true;
+                else if (action==UI_OPEN_MODE) popup=POPUP_MODE;
+                else if (action==UI_OPEN_ALLIANCE) popup=POPUP_ALLIANCE;
+                else if (action==UI_CLOSE_POPUP) popup=POPUP_NONE;
+                else if (action>=UI_TELEOP && action<=UI_AUTO) {
+                    mode=action-UI_TELEOP; popup=POPUP_NONE; safety_disable(&safety);
                 } else if (action>=UI_RED1 && action<=UI_BLUE3) {
-                    alliance=action-UI_RED1; safety_disable(&safety); if(configured) save_config();
-                } else if (action==UI_TEAM || action==UI_IP) edit_address(action==UI_TEAM);
+                    alliance=action-UI_RED1; popup=POPUP_NONE; safety_disable(&safety); if(configured) save_config();
+                } else if (action==UI_TEAM) edit_team();
                 else if (action==UI_QUIT) quit=true;
             }
-            if (quit || touch_stop || now >= next_send || (!safety.enabled && (down & (KEY_SELECT | KEY_START)))) {
+            SafetyInput input={
+                .connected=configured && wifi && link_connected(&link_state,now),
+                .code=link_state.robot.code, .robot_estop=link_state.robot.estop,
+                .enable_pressed=touch_enable, .disable_pressed=touch_stop, .neutral=neutral(&controls)
+            };
+            safety_step(&safety,&input);
+            if(touch_enable && !safety.enabled)
+                snprintf(message,sizeof message,"Enable blocked: check link, code and neutral controls.");
+            if(touch_enable && safety.enabled) snprintf(message,sizeof message,"Robot enable requested.");
+            if(touch_stop) snprintf(message,sizeof message,"Robot disabled from touch screen.");
+            if (quit || touch_stop || touch_enable || now >= next_send) {
                 transmit(&controls, now_ms(), quit); next_send = now_ms() + DS_PERIOD_MS;
             }
-            if (now >= next_draw) { draw(&controls, now_ms(), wifi, (held & KEY_ZL)!=0); next_draw = now_ms() + 33; }
+            if (now >= next_draw) { draw(&controls, now_ms(), wifi); next_draw = now_ms() + 33; }
             svcSleepThread(2000000); /* ~2ms input/network poll; no blocking DNS. */
         }
         safety_disable(&safety);

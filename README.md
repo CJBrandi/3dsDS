@@ -6,6 +6,8 @@ A native Nintendo New 3DS XL homebrew driver station for a roboRIO running FRC r
 
 ![Interface layout preview](docs/ui-preview.png)
 
+[Setup, Inputs, full-screen Disable, and selector previews](docs/ui-states.png)
+
 The preview is generated from the same UI layout code with a host SVG renderer. It illustrates the design; the console uses the 3DS system font and has not yet been photographed running this build.
 
 ## Install
@@ -22,34 +24,36 @@ Both formats use the same saved connection settings. The experimental CIA Title 
 1. Extract `dist/3dsDS-sd.zip` onto the SD card. The executable ends up at `/3ds/3dsDS/3dsDS.3dsx`.
 2. Connect the 3DS to a 2.4 GHz access point connected to the robot network using the console's Internet Settings. The AP must support the 3DS's Wi-Fi/security capabilities; a 5 GHz-only or WPA3-only network will not work. The roboRIO can connect to that network over Ethernet. This app does not configure the radio or access point.
 3. Launch **3dsDS** from the Homebrew Launcher.
-4. Open **Setup** and tap **Set address from team number**, enter your team, and the app uses `10.TE.AM.2` (team 1234 → `10.12.34.2`). Alternatively, tap the **ROBOT IPv4** address card and enter the roboRIO's actual numeric IPv4 address. There is no mDNS dependency. The 3DS must have a route to this address; being on Wi-Fi alone is insufficient.
-5. Wait for **CONNECTED** and robot code **Running**. Verify live battery and control readings. The large enable label means the DS is requesting enable; the separate **ROBOT REPORTS** field is the robot's reported state.
-6. With the robot secured and wheels raised for the first test, center both sticks and release all robot buttons/D-pad. Hold **ZL**, then hold **START for one second**. Release START and keep ZL held to drive.
+4. Open **Setup** and tap **TEAM NUMBER**. Enter your team and the app derives `10.TE.AM.2` (team 1234 → `10.12.34.2`). There is no IP entry or mDNS dependency. The robot must use that standard team address, and the 3DS must have a route to it.
+5. Wait for **CONNECTED** and robot code **Running**. Verify battery and control readings. The top **ENABLE REQUESTED** label means the DS is requesting enable; **ROBOT REPORTS** is the robot's reported state.
+6. With the robot secured and wheels raised for the first test, center both sticks and release all physical buttons/D-pad. On **Drive**, tap the large **ENABLE** button.
+7. The entire lower screen turns red with **DISABLE**. Tap anywhere on it to disable the robot.
 
-The app starts disabled in Teleop every launch. Address and alliance station persist at `/3ds/3dsDS/config.txt`. Mode is deliberately not persisted. The lower screen has **Drive**, **Setup**, and **Inputs** tabs. Drive offers separate mode/station buttons and persistent Disable/E-stop touch targets. Setup edits the address or exits; Inputs shows both sticks, all seven buttons, the D-pad POV, and ZL state. Configuration controls are locked while enabled; navigation and stop controls remain available. If a firewall separates the devices, allow 3DS → roboRIO UDP 1110 and roboRIO → 3DS UDP 1150.
+The app starts disabled in Teleop every launch. Team number and alliance station persist at `/3ds/3dsDS/config.txt`. The lower screen has Drive, Setup, and Inputs tabs while disabled. Drive uses dropdown selectors for mode and alliance. Setup accepts only the team number; the automatically derived address is read-only. Inputs shows two stick plots, ten physical buttons, and a D-pad graphic that highlights directions and diagonals. While enabled there are no tabs or configuration controls on the lower screen: every pixel is the Disable touch target.
+
+If a firewall separates the devices, allow 3DS → roboRIO UDP 1110 and roboRIO → 3DS UDP 1150.
 
 ## Driver controls
 
 | Control | Action |
 | --- | --- |
-| Hold ZL + START for 1 second | Enable, after a fresh robot reply, running code, and neutral inputs |
-| Keep ZL held | Hold-to-run interlock |
-| Release ZL | Disable |
-| SELECT | Disable |
-| Press START again after releasing it | Disable |
-| L + R + SELECT | Latch emergency stop |
-| Tap a mode on Drive while disabled | Select Teleop, Test, or Autonomous |
-| Tap a station on Drive while disabled | Select Red 1–3 / Blue 1–3 |
-| Tap Quit on Setup while disabled | Send disabled packets and exit |
-| Tap DISABLE / E-STOP on Drive | Disable / latch emergency stop |
+| Large ENABLE button on Drive | Enable after a fresh reply, running robot code, and neutral inputs |
+| Entire red lower screen while enabled | Tap anywhere to disable |
+| HOME | Disable before suspension; returning stays disabled |
+| Connection loss | Clear enable; reconnecting stays disabled |
+| Mode selector while disabled | Teleop, Test, or Autonomous |
+| Alliance selector while disabled | Red 1–3 or Blue 1–3 |
+| Quit on Setup while disabled | Send disabled packets and exit |
 
-E-stop remains latched for the rest of the app session. Reset it at the robot (normally by rebooting the roboRIO), then restart the app. Changing settings does not clear E-stop. Autonomous and Test use the same ZL hold-to-run interlock; releasing ZL disables either mode.
+There are no physical button enable/disable bindings, button combos, or hold-to-run controls. START, SELECT, ZL, and ZR are robot inputs along with the face and shoulder buttons. A new touch-down is required for each action, so the same touch that enables cannot immediately disable, and a held touch cannot re-enable after a fault. Dropdown dismissal does not activate a button underneath it.
 
-Communication loss at 250 ms, missing robot code, a socket send failure, or releasing ZL clears enable and cancels arming. Reconnection never automatically enables. START must be released before a new arming attempt. A main-loop stall over 100 ms and HOME/sleep lifecycle events also clear enable. While suspended, the app cannot transmit; the roboRIO's own communication watchdog is responsible for disabling it. On resume the app clears its reply history before sending again.
+The robot's reported E-stop is honored and latched for the app session. Reset an E-stop at the robot and restart the app. This UI has no manual E-stop action; the red screen requests normal Disable.
+
+Communication loss at 250 ms, missing robot code, socket failures, and a main-loop stall over 100 ms clear enable. HOME/sleep hooks send a disabled packet before suspension when networking is still available. While suspended the app cannot transmit; the roboRIO communication watchdog provides the fallback. On resume reply history is cleared. Reconnection, code recovery, and HOME return never automatically enable; tap ENABLE again with neutral inputs.
 
 ## Robot-side controller mapping
 
-The built-in controller is **joystick port 0**, a generic gamepad; it does not impersonate an Xbox controller. Use `Joystick` or `GenericHID`, and read raw axes/buttons. There are four axes, seven buttons, and one POV. Axis range is approximately -1 to +1 as exposed by WPILib; up is negative Y. An approximately 10% center deadzone is applied and the remaining range is rescaled.
+The built-in controller is **joystick port 0**, a generic gamepad; it does not impersonate an Xbox controller. Use `Joystick` or `GenericHID`, and read raw axes/buttons. There are four axes, ten buttons, and one POV. Axis range is approximately -1 to +1 as exposed by WPILib; up is negative Y. An approximately 10% center deadzone is applied and the remaining range is rescaled.
 
 | WPILib input | 3DS control |
 | --- | --- |
@@ -59,9 +63,10 @@ The built-in controller is **joystick port 0**, a generic gamepad; it does not i
 | Raw axis 3 | C-stick Y |
 | Raw buttons 1, 2, 3, 4 | A, B, X, Y |
 | Raw buttons 5, 6, 7 | L, R, ZR |
+| Raw buttons 8, 9, 10 | ZL, SELECT, START |
 | POV 0 | D-pad; clockwise degrees from up, -1 when released |
 
-ZL, START, SELECT, and the touch screen are reserved for driver station controls. Existing robot code that expects an `XboxController` must be updated to this mapping. No rumble hardware is available.
+Only the touch screen and system HOME button are used for driver station controls. Existing robot code that expects an `XboxController` must be updated to this mapping. No rumble hardware is available.
 
 Example Java input reads (integrate into your existing drive subsystem):
 
@@ -96,7 +101,7 @@ make test       # host C compiler; AddressSanitizer + UndefinedBehaviorSanitizer
 make package   # Python 3 standard library, for the SD zip only
 ```
 
-`make test` does not require the 3DS SDK. It also checks that enabled touch controls cannot change mode/address/alliance or exit. It exercises exact packet vectors, date tags, telemetry offsets, malformed/truncated replies, all POV combinations, deadzones, arming, each disabling condition, held-START recovery, E-stop latching, duplicate/outdated replies, and sequence rollover. `make release` outputs `dist/3dsDS.3dsx`, `.smdh`, `.cia`, `3dsDS-sd.zip`, and `SHA256SUMS`; `make clean` removes generated outputs.
+`make test` does not require the 3DS SDK. It also checks every lower-screen pixel on every page/popup state maps to Disable while enabled, dropdown isolation, and team-only setup. It exercises exact packet vectors, date tags, telemetry offsets, malformed/truncated replies, all POV combinations, deadzones, touch enable/disable, each disabling condition, recovery without automatic enable, E-stop latching, duplicate/outdated replies, and sequence rollover. `make release` outputs `dist/3dsDS.3dsx`, `.smdh`, `.cia`, `3dsDS-sd.zip`, and `SHA256SUMS`; `make clean` removes generated outputs.
 
 For this workspace the SDK was extracted from the official `devkitpro/devkitarm` container into a local cache. Rebuild here with:
 
@@ -114,15 +119,15 @@ On a Linux PC on the same reachable network:
 python3 tools/mock_robot.py --bind 0.0.0.0
 ```
 
-Enter that PC's IPv4 address using the address card on Setup. The mock prints received axes/buttons and reports 12.50 V and running robot code. Check all controls and ZL release. Repeat with `--drop-after 10` to check timeout and `--no-code` to check the code interlock. Restart the mock after testing E-stop, since it also latches E-stop. The mock does not operate hardware and is not a substitute for a real roboRIO compatibility test.
+Because the app accepts only team numbers, the mock PC must have the team's derived address (for example `10.12.34.2` for team 1234) on a dedicated test network that does not contain a real robot. Do not assign that address if it would conflict with an existing roboRIO. The mock prints all controls and reports 12.50 V and running code. Verify touch enable, the full-screen Disable target, and physical button independence. Repeat with `--drop-after 10` for link loss and `--no-code` for the code interlock. This is not a substitute for real roboRIO compatibility testing.
 
-Before normal use on the robot, verify disabled startup, axis signs, enable/disable, E-stop, Wi-Fi loss/recovery, lid close/reopen, HOME/resume, robot-code restart, and the two mode transitions with actuators secured. Never run another driver station against the same roboRIO simultaneously.
+Before normal use, verify disabled startup, axis signs, touch enable/disable, Wi-Fi loss/recovery, lid close/reopen, HOME/resume, robot-code restart, and mode changes with actuators secured. Never run another driver station against the same roboRIO simultaneously.
 
 ## GitHub builds and releases
 
 [Build status](https://github.com/CJBrandi/3dsDS/actions/workflows/build-release.yml)
 
-Every push to `main` and each pull request runs host tests and builds verified CIA/3DSX install artifacts with a pinned official devkitPro container. Artifacts can be downloaded from the workflow run. Creating a version tag publishes a GitHub Release automatically after both jobs pass:
+Every push to `main` and each pull request runs host tests and cross-compiles with a pinned official devkitPro container. CIA packaging runs on the Ubuntu 24.04 host because makerom requires a newer glibc than the SDK image. The install artifacts are verified before upload. Artifacts can be downloaded from the workflow run. Creating a version tag publishes a GitHub Release automatically after both jobs pass:
 
 ```sh
 git tag v0.2.1

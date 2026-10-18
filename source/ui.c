@@ -28,7 +28,7 @@ static void stick(int x, int y, const char *name, int8_t a, int8_t b) {
     float px = x+48+a*0.31f, py = y+53+b*0.22f;
     box(px-4,py-4,8,8,TEAL);
 }
-void ui_draw(const UiModel *m, UiPage page) {
+void ui_draw(const UiModel *m, UiPage page, UiPopup popup) {
     char s[96];
     paint_begin(0); box(0,0,400,240,BG);
     text(14,10,19,WHITE,"3dsDS"); text(93,15,10,MUTED,"ROBOT CONTROL");
@@ -37,7 +37,7 @@ void ui_draw(const UiModel *m, UiPage page) {
     box(14,45,372,65,PANEL);
     uint32_t state = m->estop ? RED : m->enabled ? TEAL : AMBER;
     box(14,45,4,65,state);
-    text(28,53,10,MUTED,m->arming ? "HOLD START TO ARM" : "DRIVER STATION");
+    text(28,53,10,MUTED,"DRIVER STATION");
     text(28,69,m->enabled ? 19 : 25,state,m->estop ? "E-STOP" : m->enabled ? "ENABLE REQUESTED" : "DISABLED");
     text(290,53,10,MUTED,"BATTERY");
     if (m->connected) snprintf(s,sizeof s,"%.2f V",m->voltage); else snprintf(s,sizeof s,"--.-- V");
@@ -48,7 +48,7 @@ void ui_draw(const UiModel *m, UiPage page) {
     metric(266,"REPLY AGE",s,m->connected ? WHITE : MUTED);
     snprintf(s,sizeof s,"%s  /  %s %u",modes[m->mode],m->alliance < 3 ? "RED" : "BLUE",m->alliance%3+1);
     text(14,176,12,WHITE,s);
-    text(14,195,11,MUTED,m->configured ? m->target : "Set your team or robot IP in Setup");
+    text(14,195,11,MUTED,m->configured ? m->target : "Set your team number in Setup");
     text(246,176,10,MUTED,"ROBOT REPORTS");
     text(246,193,12,m->connected && m->rio_enabled ? TEAL : MUTED,
          !m->connected ? "Unknown" : m->rio_enabled ? "Enabled" : "Disabled");
@@ -58,65 +58,97 @@ void ui_draw(const UiModel *m, UiPage page) {
     paint_end();
 
     paint_begin(1); box(0,0,320,240,BG);
+    if (m->enabled) {
+        /* The complete touch surface becomes the stop target, including its edges. */
+        box(0,0,320,240,0xc4263b);
+        text(72,83,44,WHITE,"DISABLE");
+        text(62,146,15,WHITE,"TAP ANYWHERE TO STOP");
+        paint_end();
+        return;
+    }
     button(8,6,98,30,"Drive",page==PAGE_DRIVE,false);
     button(111,6,98,30,"Setup",page==PAGE_SETUP,false);
     button(214,6,98,30,"Inputs",page==PAGE_INPUTS,false);
     if (page == PAGE_DRIVE) {
-        text(12,43,9,MUTED,m->enabled ? "MODE LOCKED WHILE ENABLED" : "ROBOT MODE");
-        for (int i=0;i<3;i++) button(12+102*i,57,94,30,modes[i],m->mode==i,m->enabled);
-        text(12,95,9,MUTED,"ALLIANCE STATION");
-        for (int i=0;i<6;i++) {
-            snprintf(s,sizeof s,"%c%u",i<3 ? 'R':'B',i%3+1);
-            button(12+51*i,109,43,27,s,m->alliance==i,m->enabled);
+        text(12,46,9,MUTED,"ROBOT MODE");
+        button(12,61,296,31,modes[m->mode],false,false);
+        text(280,69,13,TEAL,"v");
+        text(12,103,9,MUTED,"ALLIANCE STATION");
+        snprintf(s,sizeof s,"%s %u",m->alliance<3 ? "RED":"BLUE",m->alliance%3+1);
+        button(12,118,296,31,s,false,false);
+        text(280,126,13,TEAL,"v");
+        bool ready=m->configured && m->connected && m->code && !m->estop && m->neutral;
+        box(12,166,296,43,ready ? 0x17664f : PANEL);
+        text(100,174,25,ready ? WHITE : MUTED,"ENABLE");
+        const char *reason=m->estop ? "Reset robot E-stop and restart app" :
+            !m->configured ? "Set your team number in Setup" :
+            !m->connected ? "Waiting for robot connection" :
+            !m->code ? "Waiting for robot code" :
+            !m->neutral ? "Center sticks and release robot buttons" : "Tap ENABLE when ready";
+        text(12,219,11,ready ? TEAL : AMBER,reason);
+        if(popup!=POPUP_NONE) {
+            box(6,40,308,195,0x0c131d);
+            text(16,45,11,MUTED,popup==POPUP_MODE ? "SELECT MODE":"SELECT ALLIANCE STATION");
+            int count=popup==POPUP_MODE ? 3:6;
+            int height=popup==POPUP_MODE ? 45:26;
+            for(int i=0;i<count;i++) {
+                if(popup==POPUP_MODE) snprintf(s,sizeof s,"%s",modes[i]);
+                else snprintf(s,sizeof s,"%s %u",i<3 ? "RED":"BLUE",i%3+1);
+                button(12,64+i*height,296,height-2,s,
+                    popup==POPUP_MODE ? m->mode==i:m->alliance==i,false);
+            }
         }
-        box(12,146,194,39,0x244055); text(23,157,18,WHITE,"DISABLE");
-        box(214,146,94,39,0x572b36); text(224,159,13,RED,"E-STOP");
-        if (m->estop) {
-            text(12,194,11,RED,"E-stop latched. Reset robot + restart app.");
-        } else {
-            text(12,194,12,m->deadman ? TEAL : WHITE,m->enabled ? "Keep ZL held to drive" : "Hold ZL + START for 1 second");
-            text(12,212,10,MUTED,"Release ZL or press SELECT to disable");
-        }
-        box(12,232,296,3,LINE);
-        float progress=m->arm_progress; if(progress<0)progress=0; if(progress>1)progress=1;
-        box(12,232,296*progress,3,TEAL);
     } else if (page == PAGE_SETUP) {
-        text(12,45,10,MUTED,m->enabled ? "DISABLE ROBOT TO EDIT SETTINGS" : "CONNECTION");
+        text(12,45,10,MUTED,"CONNECTION");
         button(12,64,296,45,"",false,m->enabled);
-        text(22,69,9,MUTED,"ROBOT IPv4 / TAP TO EDIT");
-        text(22,84,16,WHITE,m->configured ? m->target : "Not configured");
-        button(12,119,296,33,"Set address from team number",false,m->enabled);
+        text(22,69,9,MUTED,"TEAM NUMBER / TAP TO EDIT");
+        if(m->configured) snprintf(s,sizeof s,"Team %u",m->team); else snprintf(s,sizeof s,"Not configured");
+        text(22,84,16,WHITE,s);
+        text(12,122,10,MUTED,"ROBOT ADDRESS (AUTOMATIC)");
+        text(12,139,13,WHITE,m->configured ? m->target : "Enter your team number above");
         text(12,163,10,MUTED,"Join robot Wi-Fi in System Settings.");
         text(12,178,10,MUTED,"2.4 GHz network / direct UDP connection");
         button(12,199,296,30,"Quit to launcher",false,m->enabled);
     } else {
         stick(16,47,"CIRCLE PAD",m->controls.axes[0],m->controls.axes[1]);
         stick(132,47,"C-STICK",m->controls.axes[2],m->controls.axes[3]);
-        text(245,48,10,MUTED,"POV");
-        snprintf(s,sizeof s,"%d",m->controls.pov); text(245,69,19,WHITE,s);
-        text(245,104,9,MUTED,"JOYSTICK 0");
-        const char *labels[]={"A","B","X","Y","L","R","ZR"};
-        for(int i=0;i<7;i++) button(12+43*i,147,38,30,labels[i],m->controls.buttons&(1u<<i),false);
-        text(12,188,11,m->deadman ? TEAL : AMBER,m->deadman ? "ZL hold-to-run: HELD" : "ZL hold-to-run: RELEASED");
-        text(12,207,10,MUTED,"START + ZL: arm    SELECT: disable");
-        text(12,222,9,MUTED,"L + R + SELECT: emergency stop");
+        text(245,48,10,MUTED,"D-PAD");
+        int pov=m->controls.pov;
+        bool up=pov==0 || pov==45 || pov==315;
+        bool right=pov==45 || pov==90 || pov==135;
+        bool down=pov==135 || pov==180 || pov==225;
+        bool left=pov==225 || pov==270 || pov==315;
+        box(268,70,16,16,up ? TEAL:LINE);
+        box(250,88,16,16,left ? TEAL:LINE);
+        box(268,88,16,16,PANEL);
+        box(286,88,16,16,right ? TEAL:LINE);
+        box(268,106,16,16,down ? TEAL:LINE);
+        const char *labels[]={"A","B","X","Y","L","R","ZR","ZL","SEL","STA"};
+        for(int i=0;i<10;i++) button(12+60*(i%5),144+32*(i/5),54,28,labels[i],m->controls.buttons&(1u<<i),false);
+        text(12,210,10,MUTED,"All physical controls go to joystick 0.");
+        text(12,225,9,MUTED,"Enable and disable using the touch screen.");
     }
     paint_end();
 }
 static bool inside(int x,int y,int bx,int by,int w,int h) { return x>=bx && x<bx+w && y>=by && y<by+h; }
-UiAction ui_touch(UiPage page,int x,int y,bool enabled) {
+UiAction ui_touch(UiPage page,UiPopup popup,int x,int y,bool enabled) {
+    if(x<0 || x>=320 || y<0 || y>=240) return UI_NONE;
+    if(enabled) return UI_DISABLE;
+    if(popup!=POPUP_NONE) {
+        int count=popup==POPUP_MODE ? 3:6;
+        int height=popup==POPUP_MODE ? 45:26;
+        for(int i=0;i<count;i++) if(inside(x,y,12,64+i*height,296,height-2))
+            return (popup==POPUP_MODE ? UI_TELEOP:UI_RED1)+i;
+        return UI_CLOSE_POPUP;
+    }
     for(int i=0;i<3;i++) if(inside(x,y,8+103*i,6,98,30)) return UI_TAB_DRIVE+i;
     if(page==PAGE_DRIVE) {
-        if(inside(x,y,12,146,194,39)) return UI_DISABLE;
-        if(inside(x,y,214,146,94,39)) return UI_ESTOP;
-        if(!enabled) {
-            for(int i=0;i<3;i++) if(inside(x,y,12+102*i,57,94,30)) return UI_TELEOP+i;
-            for(int i=0;i<6;i++) if(inside(x,y,12+51*i,109,43,27)) return UI_RED1+i;
-        }
+        if(inside(x,y,12,61,296,31)) return UI_OPEN_MODE;
+        if(inside(x,y,12,118,296,31)) return UI_OPEN_ALLIANCE;
+        if(inside(x,y,12,166,296,43)) return UI_ENABLE;
     }
-    if(page==PAGE_SETUP && !enabled) {
-        if(inside(x,y,12,64,296,45)) return UI_IP;
-        if(inside(x,y,12,119,296,33)) return UI_TEAM;
+    if(page==PAGE_SETUP) {
+        if(inside(x,y,12,64,296,45)) return UI_TEAM;
         if(inside(x,y,12,199,296,30)) return UI_QUIT;
     }
     return UI_NONE;

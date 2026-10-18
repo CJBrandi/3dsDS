@@ -7,9 +7,9 @@
 
 static void packets(void) {
     uint8_t out[DS_PACKET_MAX];
-    Controls j = {{-127, 0, 127, -1}, 0x41, 315};
+    Controls j = {{-127, 0, 127, -1}, 0x341, 315};
     Command c = {65535, 2, true, false, 5};
-    const uint8_t expected[] = {255,255,1,6,0,5,11,12,4,129,0,127,255,7,65,1,1,59};
+    const uint8_t expected[] = {255,255,1,6,0,5,12,12,4,129,0,127,255,10,3,65,1,1,59};
     assert(ds_packet(out, sizeof out, &c, &j, NULL) == sizeof expected);
     assert(memcmp(out, expected, sizeof expected) == 0);
     assert(ds_packet(out, sizeof expected - 1, &c, &j, NULL) == 0);
@@ -17,7 +17,7 @@ static void packets(void) {
     c.sequence++; assert(c.sequence == 0);
     Calendar cal = {0x00010203, 4, 5, 6, 7, 9, 126};
     const uint8_t date[] = {11,15,0,1,2,3,4,5,6,7,9,126,4,16,'U','T','C'};
-    assert(ds_packet(out, sizeof out, &c, &j, &cal) == 35);
+    assert(ds_packet(out, sizeof out, &c, &j, &cal) == 36);
     assert(memcmp(out + 6, date, sizeof date) == 0);
     c.mode = 3; assert(ds_packet(out, sizeof out, &c, &j, NULL) == 0);
     c.mode = 0; c.alliance = 6; assert(ds_packet(out, sizeof out, &c, &j, NULL) == 0);
@@ -46,40 +46,32 @@ static void axes(void) {
     for (int bits = 0; bits < 16; bits++)
         assert(ds_pov(bits&1,bits&2,bits&4,bits&8) == expected[bits]);
 }
-static Safety armed(void) {
-    Safety s = {0}; SafetyInput i = {true,true,false,true,true,false,false,true};
-    safety_step(&s,&i,10); assert(s.arming && !s.enabled);
-    safety_step(&s,&i,1009); assert(!s.enabled);
-    safety_step(&s,&i,1010); assert(s.enabled);
-    safety_step(&s,&i,1011); assert(s.enabled); /* Still-held START. */
-    i.start = false; safety_step(&s,&i,1020); assert(s.enabled);
-    return s;
-}
 static void safety_tests(void) {
-    Safety s = armed(); SafetyInput i = {true,true,false,true,false,false,false,true};
-    i.deadman = false; safety_step(&s,&i,1030); assert(!s.enabled);
-    i.deadman = true; safety_step(&s,&i,4000); assert(!s.enabled);
-    s = armed(); i.start = true; safety_step(&s,&i,2000); assert(!s.enabled);
-    for (int fault = 0; fault < 5; ++fault) {
-        s = armed(); i = (SafetyInput){true,true,false,true,true,false,false,true};
-        if (fault == 0) i.connected = false;
-        if (fault == 1) i.code = false;
-        if (fault == 2) i.disable = true;
-        if (fault == 3) i.emergency = true;
-        if (fault == 4) i.robot_estop = true;
-        safety_step(&s,&i,2000); assert(!s.enabled);
-        bool latch = fault >= 3; assert(s.estop == latch);
-        i = (SafetyInput){true,true,false,true,true,false,false,true};
-        safety_step(&s,&i,4000); safety_step(&s,&i,6000); assert(!s.enabled);
-        i.start = false; safety_step(&s,&i,7000);
-        i.start = true; safety_step(&s,&i,8000); safety_step(&s,&i,9001);
-        assert(s.enabled == !latch);
+    Safety s={0};
+    SafetyInput i={.connected=true,.code=true,.neutral=true};
+    safety_step(&s,&i); assert(!s.enabled); /* Connected is not enough. */
+    i.enable_pressed=true; safety_step(&s,&i); assert(s.enabled);
+    i.enable_pressed=false; i.neutral=false; safety_step(&s,&i); assert(s.enabled); /* Drive normally. */
+    i.disable_pressed=true; safety_step(&s,&i); assert(!s.enabled);
+    i.disable_pressed=false; i.neutral=true; safety_step(&s,&i); assert(!s.enabled);
+    for(int fault=0;fault<4;fault++) {
+        s=(Safety){0}; i=(SafetyInput){.connected=true,.code=true,.neutral=true,.enable_pressed=true};
+        safety_step(&s,&i); assert(s.enabled);
+        i.enable_pressed=false;
+        if(fault==0) i.connected=false;
+        if(fault==1) i.code=false;
+        if(fault==2) i.robot_estop=true;
+        if(fault==3) safety_disable(&s); /* HOME/suspend/stall path. */
+        safety_step(&s,&i); assert(!s.enabled);
+        i.connected=true; i.code=true; i.robot_estop=false;
+        safety_step(&s,&i); assert(!s.enabled); /* Recovery cannot enable. */
+        i.enable_pressed=true; safety_step(&s,&i); assert(s.enabled==(fault!=2));
     }
-    s = (Safety){0}; i = (SafetyInput){true,true,false,true,true,false,false,false};
-    safety_step(&s,&i,0); safety_step(&s,&i,2000); assert(!s.enabled);
-    i.neutral = true; safety_step(&s,&i,3000); assert(!s.enabled);
-    safety_step(&s,&i,4000); assert(s.enabled);
-    safety_disable(&s); safety_step(&s,&i,6000); assert(!s.enabled);
+    s=(Safety){0}; i=(SafetyInput){.connected=true,.code=true,.enable_pressed=true};
+    safety_step(&s,&i); assert(!s.enabled); /* Non-neutral input blocks enable. */
+    i.neutral=true; i.connected=false; safety_step(&s,&i); assert(!s.enabled);
+    i.connected=true; i.code=false; safety_step(&s,&i); assert(!s.enabled);
+    i.code=true; i.disable_pressed=true; safety_step(&s,&i); assert(!s.enabled); /* Stop wins. */
 }
 static void links(void) {
     Link l = {0}; uint8_t p[] = {255,255,1,0,0x20,12,128,0};
