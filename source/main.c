@@ -195,17 +195,19 @@ int main(int argc, char **argv) {
         aptHookCookie hook; aptHook(&hook, lifecycle, NULL);
         uint64_t next_send = 0, next_draw = 0, next_wifi = 0, previous = now_ms();
         uint32_t wifi = 0;
-        bool quit = false;
+        bool quit = false, touch_ready=false;
         while (!quit && aptMainLoop()) {
             uint64_t now = now_ms();
             if (__atomic_exchange_n(&lifecycle_event, 0, __ATOMIC_ACQ_REL) || now - previous > 100) {
                 safety_disable(&safety); memset(&link_state, 0, sizeof link_state);
+                touch_ready=false;
             }
             previous = now;
             hidScanInput(); uint32_t held = hidKeysHeld(), down = hidKeysDown();
             Controls controls = read_controls(held);
             /* Expire BEFORE receiving, so a recovered link cannot preserve an enable. */
             if (!link_connected(&link_state, now)) {
+                if(link_state.have_reply || safety.enabled) touch_ready=false;
                 safety_disable(&safety);
                 if (link_state.have_reply) memset(&link_state, 0, sizeof link_state);
             }
@@ -215,7 +217,9 @@ int main(int argc, char **argv) {
             }
             receive_status(now);
             bool touch_stop=false, touch_enable=false;
-            if (down & KEY_TOUCH) {
+            if(!(held & KEY_TOUCH)) touch_ready=true;
+            if ((down & KEY_TOUCH) && touch_ready) {
+                touch_ready=false;
                 touchPosition pos; hidTouchRead(&pos);
                 UiAction action=ui_touch(page,popup,pos.px,pos.py,safety.enabled);
                 if (action>=UI_TAB_DRIVE && action<=UI_TAB_INPUTS) page=action-UI_TAB_DRIVE;
