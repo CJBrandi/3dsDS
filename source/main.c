@@ -17,11 +17,15 @@
 #include "link.h"
 #include "ui.h"
 #include "wifi.h"
+#include "wifi_scan.h"
 
 #define CONFIG_DIR "sdmc:/3ds/3dsDS"
 #define CONFIG_PATH CONFIG_DIR "/config.txt"
 static UiPage page;
 static UiPopup popup;
+static unsigned network_page;
+static bool show_password;
+static WifiSecurity remembered_security=WIFI_UNSUPPORTED;
 static Safety safety;
 static Link link_state;
 static struct sockaddr_in robot_addr;
@@ -41,6 +45,7 @@ static void lifecycle(APT_HookType hook, void *unused) {
     /* libctru invokes these hooks synchronously before entering HOME/sleep. */
     safety_disable(&safety);
     if(wifi_setup.busy) wifi_setup_cancel();
+    wifi_scan_cancel(); show_password=false;
     if(hook==APTHOOK_ONSUSPEND || hook==APTHOOK_ONSLEEP || hook==APTHOOK_ONEXIT) {
         Controls empty={{0},0,-1};
         transmit(&empty,now_ms(),true);
@@ -63,16 +68,24 @@ static void save_config(void) {
     mkdir("sdmc:/3ds", 0777); mkdir(CONFIG_DIR, 0777);
     FILE *f = fopen(CONFIG_PATH ".tmp", "w");
     if (!f) { snprintf(message, sizeof message, "SD save failed; using session settings."); return; }
-    bool ok = fprintf(f, "%u %u\n", team_number, alliance) > 0;
+    bool ok = fprintf(f, "%u %u %u %u\n", team_number, alliance, wifi_setup.slot+1, (unsigned)wifi_setup.security) > 0;
     if (fclose(f) != 0) ok = false;
     if (!ok || rename(CONFIG_PATH ".tmp", CONFIG_PATH) != 0)
         snprintf(message, sizeof message, "SD save failed; using session settings.");
 }
 static void load_config(void) {
-    unsigned team,a;
+    unsigned team=0,a=0,slot=0,security=WIFI_UNSUPPORTED;
     FILE *f = fopen(CONFIG_PATH, "r");
     if (!f) return;
-    if (fscanf(f, "%u %u", &team, &a) == 2 && a <= 5 && set_team(team)) {
+    int fields=fscanf(f, "%u %u %u %u", &team, &a, &slot, &security);
+    if(fields>=3 && slot>=1 && slot<=3) {
+        wifi_setup.slot=slot-1;
+        memcpy(wifi_setup.ssid,wifi_setup.profiles[slot-1],33);
+        wifi_setup.password_saved=wifi_setup.ssid[0]!=0;
+        wifi_setup.security=fields==4 && security<=WIFI_OPEN ? (WifiSecurity)security:WIFI_UNSUPPORTED;
+        remembered_security=wifi_setup.security;
+    }
+    if (fields>=2 && a <= 5 && set_team(team)) {
         alliance = a;
         snprintf(message, sizeof message, "Ready. Tap ENABLE on the Drive screen.");
     }
@@ -149,7 +162,6 @@ static void edit_team(void) {
     if(swkbdInputText(&kb,text,sizeof text)==SWKBD_BUTTON_RIGHT) {
         char *end; unsigned long team=strtoul(text,&end,10);
         if(text[0] && !*end && team>=1 && team<=25599 && set_team((unsigned)team)) {
-            if(!wifi_setup.ssid[0]) wifi_suggest(team_number,false,wifi_setup.ssid);
             snprintf(message,sizeof message,"Team %u saved. Robot disabled.",team_number); save_config();
         } else snprintf(message,sizeof message,"Invalid team number. No changes.");
     }
@@ -157,38 +169,58 @@ static void edit_team(void) {
     hidScanInput(); /* Discard keyboard dismiss button edges. */
     safety_disable(&safety);
 }
-static void edit_wifi_text(bool password) {
-    if(wifi_setup.busy) return;
+static bool edit_password(void) {
+    if(wifi_setup.busy || wifi_setup.security!=WIFI_WPA2) return false;
     safety_disable(&safety);
     Controls empty={{0},0,-1}; transmit(&empty,now_ms(),true);
     SwkbdState kb;
-    swkbdInit(&kb,SWKBD_TYPE_NORMAL,2,password ? 64:32);
-    swkbdSetFeatures(&kb,0); /* No predictive learning of a network password. */
-    swkbdSetHintText(&kb,password ? "Wi-Fi password":"Network name (SSID)");
-    if(password) swkbdSetPasswordMode(&kb,SWKBD_PASSWORD_HIDE);
-    else if(wifi_setup.ssid[0]) swkbdSetInitialText(&kb,wifi_setup.ssid);
-    char value[129]={0};
-    if(swkbdInputText(&kb,value,sizeof value)==SWKBD_BUTTON_RIGHT) {
-        size_t n=strlen(value);
-        if(n>(password ? 64u:32u))
-            snprintf(wifi_setup.status,sizeof wifi_setup.status,"Entry is too long in UTF-8 bytes.");
-        else {
-            if(password) {
-                wifi_wipe(wifi_setup.password,sizeof wifi_setup.password);
-                memcpy(wifi_setup.password,value,n+1);
-            } else {
-                memcpy(wifi_setup.ssid,value,n+1);
-                wifi_wipe(wifi_setup.password,sizeof wifi_setup.password);
-            }
-            wifi_setup.password_saved=false;
-        }
-    }
+    swkbdInit(&kb,SWKBD_TYPE_NORMAL,2,64);
+    swkbdSetFeatures(&kb,0);
+    swkbdSetHintText(&kb,"Wi-Fi password");
+    swkbdSetPasswordMode(&kb,show_password ? SWKBD_PASSWORD_NONE:SWKBD_PASSWORD_HIDE);
+    if(wifi_setup.password[0]) swkbdSetInitialText(&kb,wifi_setup.password);
+    char value[257]={0};
+    bool ok=swkbdInputText(&kb,value,sizeof value)==SWKBD_BUTTON_RIGHT;
+    if(ok && strlen(value)<=64) {
+        wifi_wipe(wifi_setup.password,sizeof wifi_setup.password);
+        memcpy(wifi_setup.password,value,strlen(value)+1);
+        wifi_setup.password_saved=false;
+    } else ok=false;
     wifi_wipe(value,sizeof value);
     memset(&link_state,0,sizeof link_state); hidScanInput();
+    return ok;
+}
+static bool select_network(unsigned index) {
+    if(wifi_setup.busy || wifi_scan.scanning || !wifi_scan.valid ||
+       now_ms()-wifi_scan.scanned_at>WIFI_SCAN_FRESH_MS || index>=wifi_scan.count) return false;
+    WifiNetwork *n=&wifi_scan.networks[index];
+    if(!wifi_security_supported(n->security)) {
+        snprintf(wifi_setup.status,sizeof wifi_setup.status,"%s is unsupported on 3DS.",wifi_security_name(n->security));
+        return false;
+    }
+    bool same=!strcmp(wifi_setup.ssid,n->ssid) && wifi_setup.security==n->security;
+    if(!same) wifi_wipe(wifi_setup.password,sizeof wifi_setup.password);
+    memcpy(wifi_setup.ssid,n->ssid,33); wifi_setup.security=n->security;
+    wifi_setup.password_saved=!strcmp(wifi_setup.profiles[wifi_setup.slot],n->ssid) && remembered_security==n->security;
+    show_password=false; popup=POPUP_NONE;
+    return n->security==WIFI_OPEN || edit_password();
+}
+static void join_network(void) {
+    if(wifi_scan.scanning) return;
+    bool found=false;
+    if(wifi_scan.valid && now_ms()-wifi_scan.scanned_at<=WIFI_SCAN_FRESH_MS)
+        for(unsigned i=0;i<wifi_scan.count;i++)
+            if(!strcmp(wifi_scan.networks[i].ssid,wifi_setup.ssid) &&
+               wifi_scan.networks[i].security==wifi_setup.security && wifi_security_supported(wifi_setup.security)) found=true;
+    if(!found) { snprintf(wifi_setup.status,sizeof wifi_setup.status,"Scan and select an available network first."); return; }
+    safety_disable(&safety);
+    Controls empty={{0},0,-1}; transmit(&empty,now_ms(),true);
+    memset(&link_state,0,sizeof link_state);
+    if(wifi_setup_connect(now_ms())) { remembered_security=wifi_setup.security; save_config(); }
 }
 static void draw(const Controls *c, uint64_t now, uint32_t wifi) {
     bool connected=link_connected(&link_state,now);
-    char suggested[33]; wifi_suggest(team_number,false,suggested);
+    int recommended=wifi_scan_recommended(team_number,now);
     UiModel model={
         .connected=connected, .wifi=wifi!=0, .code=link_state.robot.code,
         .enabled=safety.enabled, .rio_enabled=link_state.robot.enabled,
@@ -197,10 +229,12 @@ static void draw(const Controls *c, uint64_t now, uint32_t wifi) {
         .voltage=link_state.robot.voltage,
         .age_ms=connected ? (unsigned)(now-link_state.last_rx) : 0,
         .mode=mode, .alliance=alliance, .team=team_number, .controls=*c, .target=target, .message=message,
-        .wifi_ssid=wifi_setup.ssid, .wifi_suggestion=suggested,
-        .wifi_slot_ssid=wifi_setup.profiles[wifi_setup.slot], .wifi_status=wifi_setup.status,
-        .wifi_busy=wifi_setup.busy, .wifi_password_set=wifi_setup.password_saved || wifi_setup.password[0],
-        .wifi_security=wifi_setup.security, .wifi_slot=wifi_setup.slot, .wifi_available=wifi_setup.available
+        .wifi_ssid=wifi_setup.ssid, .wifi_suggestion=recommended>=0 ? wifi_scan.networks[recommended].ssid:NULL,
+        .wifi_password=wifi_setup.password, .wifi_show_password=show_password,
+        .networks=wifi_scan.networks, .network_count=wifi_scan.count, .network_page=network_page,
+        .wifi_scanning=wifi_scan.scanning, .wifi_status=wifi_scan.scanning ? "Scanning nearby 2.4 GHz networks...":wifi_setup.status,
+        .wifi_busy=wifi_setup.busy || wifi_scan.scanning, .wifi_password_set=wifi_setup.password_saved || wifi_setup.password[0],
+        .wifi_security=wifi_setup.security, .wifi_available=wifi_setup.available
     };
     ui_draw(&model,page,popup);
 }
@@ -228,9 +262,8 @@ int main(int argc, char **argv) {
         display_exit(); consoleInit(GFX_TOP,NULL); printf("Network initialization failed.\nSOC: %08lX errno: %d\nPress START to exit.\n", (unsigned long)result, errno);
         while (aptMainLoop()) { hidScanInput(); if (hidKeysDown() & KEY_START) break; gspWaitForVBlank(); }
     } else {
-        load_config();
         wifi_setup_init();
-        wifi_suggest(team_number,false,wifi_setup.ssid);
+        load_config();
         aptHookCookie hook; aptHook(&hook, lifecycle, NULL);
         uint64_t next_send = 0, next_draw = 0, next_wifi = 0, previous = now_ms();
         uint32_t wifi = 0;
@@ -255,6 +288,10 @@ int main(int argc, char **argv) {
                 next_wifi = now + 200;
             }
             wifi_setup_poll(now);
+            bool was_scanning=wifi_scan.scanning;
+            wifi_scan_poll(now);
+            if(was_scanning && !wifi_scan.scanning && wifi_scan.error)
+                snprintf(wifi_setup.status,sizeof wifi_setup.status,"Wi-Fi scan failed (%08lX). Tap Scan to retry.",(unsigned long)wifi_scan.error);
             receive_status(now);
             bool touch_stop=false, touch_enable=false;
             if(!(held & KEY_TOUCH)) touch_ready=true;
@@ -262,31 +299,29 @@ int main(int argc, char **argv) {
                 touch_ready=false;
                 touchPosition pos; hidTouchRead(&pos);
                 UiAction action=ui_touch(page,popup,pos.px,pos.py,safety.enabled);
-                if (action>=UI_TAB_DRIVE && action<=UI_TAB_WIFI) page=action-UI_TAB_DRIVE;
+                if (action>=UI_TAB_DRIVE && action<=UI_TAB_WIFI) {
+                    page=action-UI_TAB_DRIVE; show_password=false;
+                    if(page==PAGE_WIFI && !wifi_setup.busy && !wifi_scan.scanning) {
+                        safety_disable(&safety); wifi_scan_start(now_ms()); network_page=0;
+                    }
+                }
                 else if (action==UI_DISABLE) {
                     safety_disable(&safety);
                     touch_stop=true;
                 } else if (action==UI_ENABLE) touch_enable=true;
-                else if (action==UI_OPEN_SECURITY && !wifi_setup.busy) popup=POPUP_SECURITY;
-                else if (action==UI_OPEN_WIFI_SLOT && !wifi_setup.busy) popup=POPUP_WIFI_SLOT;
-                else if (action>=UI_SECURITY_WPA2 && action<=UI_SECURITY_OPEN) {
-                    wifi_setup.security=action-UI_SECURITY_WPA2; wifi_setup.password_saved=false; popup=POPUP_NONE;
-                    wifi_wipe(wifi_setup.password,sizeof wifi_setup.password);
-                } else if(action>=UI_SLOT1 && action<=UI_SLOT3) {
-                    wifi_setup.slot=action-UI_SLOT1; wifi_setup.password_saved=false; popup=POPUP_NONE;
-                } else if(action==UI_WIFI_SSID && !wifi_setup.busy) edit_wifi_text(false);
-                else if(action==UI_WIFI_PASSWORD && !wifi_setup.busy && wifi_setup.security!=WIFI_OPEN) edit_wifi_text(true);
+                else if(action==UI_WIFI_NETWORKS && !wifi_setup.busy) { popup=POPUP_NETWORKS; network_page=0; }
+                else if(action==UI_WIFI_SCAN && !wifi_setup.busy && !wifi_scan.scanning) {
+                    safety_disable(&safety); wifi_scan_start(now_ms()); network_page=0;
+                } else if(action==UI_NETWORK_PREV && network_page) network_page--;
+                else if(action==UI_NETWORK_NEXT && (network_page+1)*5<wifi_scan.count) network_page++;
+                else if(action>=UI_NETWORK0 && action<=UI_NETWORK4) select_network(network_page*5+action-UI_NETWORK0);
+                else if(action==UI_WIFI_PASSWORD) edit_password();
+                else if(action==UI_WIFI_SHOW) show_password=!show_password;
                 else if(action==UI_WIFI_SUGGEST && !wifi_setup.busy) {
-                    wifi_suggest(team_number,false,wifi_setup.ssid); wifi_setup.password_saved=false;
-                    wifi_wipe(wifi_setup.password,sizeof wifi_setup.password);
+                    int index=wifi_scan_recommended(team_number,now_ms());
+                    if(index>=0 && select_network(index)) join_network();
                 } else if(action==UI_WIFI_CONNECT) {
-                    if(wifi_setup.busy) wifi_setup_cancel();
-                    else {
-                        safety_disable(&safety);
-                        Controls empty={{0},0,-1}; transmit(&empty,now_ms(),true);
-                        memset(&link_state,0,sizeof link_state);
-                        wifi_setup_connect(now_ms());
-                    }
+                    if(wifi_setup.busy) wifi_setup_cancel(); else join_network();
                 }
                 else if (action==UI_OPEN_MODE) popup=POPUP_MODE;
                 else if (action==UI_OPEN_ALLIANCE) popup=POPUP_ALLIANCE;
@@ -298,7 +333,7 @@ int main(int argc, char **argv) {
                 } else if (action==UI_TEAM) edit_team();
             }
             SafetyInput input={
-                .connected=configured && wifi && !wifi_setup.busy && link_connected(&link_state,now),
+                .connected=configured && wifi && !wifi_setup.busy && !wifi_scan.scanning && link_connected(&link_state,now),
                 .code=link_state.robot.code, .robot_estop=link_state.robot.estop,
                 .enable_pressed=touch_enable, .disable_pressed=touch_stop, .neutral=neutral(&controls)
             };
@@ -319,7 +354,7 @@ int main(int argc, char **argv) {
         aptUnhook(&hook);
     }
     if (sock >= 0) close(sock);
-    if (ac_ready) { wifi_setup_exit(); acExit(); }
+    if (ac_ready) { wifi_scan_exit(); wifi_setup_exit(); acExit(); }
     if (soc_ready) socExit();
     free(buffer); display_exit(); gfxExit();
     return 0;

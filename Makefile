@@ -26,9 +26,13 @@ dist/3dsDS.smdh: assets/icon.png | dist
 dist/3dsDS.3dsx: dist/3dsDS.elf dist/3dsDS.smdh
 	$(TOOLS)/3dsxtool $< $@ --smdh=dist/3dsDS.smdh
 test: | build
+	$(CC) -std=c11 -Wall -Wextra -Werror -pedantic -fsanitize=address,undefined -Itests/fakes -Iinclude source/wifi_scan.c source/wifi_scan_parse.c tests/test_wifi_scan_service.c -o build/test_wifi_scan_service
+	./build/test_wifi_scan_service
+	$(CC) -std=c11 -Wall -Wextra -Werror -pedantic -fsanitize=address,undefined -Iinclude source/wifi_scan_parse.c tests/test_wifi_scan.c -o build/test_wifi_scan
+	./build/test_wifi_scan
 	$(CC) -std=c11 -Wall -Wextra -Werror -pedantic -g -fsanitize=address,undefined -Iinclude source/protocol.c source/safety.c source/link.c tests/test_core.c -o build/test_core
 	./build/test_core
-	$(CC) -std=c11 -Wall -Wextra -Werror -pedantic -fsanitize=address,undefined -Iinclude source/ui.c tests/test_ui.c -o build/test_ui
+	$(CC) -std=c11 -Wall -Wextra -Werror -pedantic -fsanitize=address,undefined -Iinclude source/ui.c source/wifi_scan_parse.c tests/test_ui.c -o build/test_ui
 	./build/test_ui
 	$(CC) -std=c11 -Wall -Wextra -Werror -pedantic -fsanitize=address,undefined -Itests/fakes -Iinclude source/wifi.c source/wifi_settings.c tests/test_wifi.c -lmbedcrypto -o build/test_wifi
 	./build/test_wifi
@@ -38,7 +42,7 @@ clean:
 -include $(OBJECTS:.o=.d)
 
 preview: | build
-	$(CC) -std=c11 -Wall -Wextra -Werror -Iinclude source/ui.c tools/preview_ui.c -o build/preview_ui
+	$(CC) -std=c11 -Wall -Wextra -Werror -Iinclude source/ui.c source/wifi_scan_parse.c tools/preview_ui.c -o build/preview_ui
 	./build/preview_ui docs
 
 cia-tools:

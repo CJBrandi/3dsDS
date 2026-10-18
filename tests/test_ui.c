@@ -8,7 +8,7 @@ void paint_box(float x,float y,float w,float h,uint32_t c) {(void)x;(void)y;(voi
 void paint_text(float x,float y,float size,uint32_t c,const char *s) {(void)x;(void)y;(void)size;(void)c;(void)s;}
 int main(void) {
     /* Every valid pixel stops, on every page, even with an old popup open. */
-    for(int page=0;page<4;page++) for(int popup=0;popup<5;popup++)
+    for(int page=0;page<4;page++) for(int popup=0;popup<4;popup++)
         for(int x=0;x<320;x++) for(int y=0;y<240;y++)
             assert(ui_touch(page,popup,x,y,true)==UI_DISABLE);
     assert(ui_touch(PAGE_DRIVE,POPUP_NONE,20,65,false)==UI_OPEN_MODE);
@@ -24,10 +24,14 @@ int main(void) {
     assert(ui_touch(PAGE_SETUP,POPUP_NONE,50,210,false)==UI_NONE);
     assert(ui_touch(PAGE_DRIVE,POPUP_NONE,-1,65,true)==UI_NONE);
     assert(ui_touch(PAGE_DRIVE,POPUP_NONE,320,65,true)==UI_NONE);
-    assert(ui_touch(PAGE_WIFI,POPUP_NONE,50,85,false)==UI_WIFI_SSID);
-    assert(ui_touch(PAGE_WIFI,POPUP_NONE,50,120,false)==UI_WIFI_PASSWORD);
-    assert(ui_touch(PAGE_WIFI,POPUP_NONE,50,190,false)==UI_WIFI_CONNECT);
-    assert(ui_touch(PAGE_WIFI,POPUP_SECURITY,50,120,false)==UI_SECURITY_OPEN);
-    assert(ui_touch(PAGE_WIFI,POPUP_WIFI_SLOT,50,170,false)==UI_SLOT3);
-    puts("PASS: full-screen stop target, dropdown isolation, team-only setup");
+    assert(ui_touch(PAGE_WIFI,POPUP_NONE,50,100,false)==UI_WIFI_NETWORKS);
+    assert(ui_touch(PAGE_WIFI,POPUP_NONE,50,140,false)==UI_WIFI_PASSWORD);
+    assert(ui_touch(PAGE_WIFI,POPUP_NONE,275,140,false)==UI_WIFI_SHOW);
+    assert(ui_touch(PAGE_WIFI,POPUP_NONE,275,100,false)==UI_WIFI_SCAN);
+    assert(ui_touch(PAGE_WIFI,POPUP_NONE,275,60,false)==UI_WIFI_SUGGEST);
+    assert(ui_touch(PAGE_WIFI,POPUP_NONE,50,210,false)==UI_WIFI_CONNECT);
+    assert(ui_touch(PAGE_WIFI,POPUP_NETWORKS,50,100,false)==UI_NETWORK1);
+    assert(ui_touch(PAGE_WIFI,POPUP_NETWORKS,250,220,false)==UI_NETWORK_NEXT);
+    assert(ui_touch(PAGE_WIFI,POPUP_NETWORKS,160,220,false)==UI_CLOSE_POPUP);
+    puts("PASS: full-screen stop target, dropdown isolation, team-only setup and scanned network picker");
 }

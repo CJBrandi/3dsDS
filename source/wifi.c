@@ -56,7 +56,7 @@ void wifi_setup_init(void) {
     wifi_setup_refresh_profiles();
     for(unsigned i=0;i<3;i++) if(!wifi_setup.profiles[i][0]) { wifi_setup.slot=i; break; }
     snprintf(wifi_setup.status,sizeof wifi_setup.status,wifi_setup.available ?
-        "Enter network and password, then connect.":"Wi-Fi setup requires ac:i access (CIA build).");
+        "Scan and select a network to join.":"Wi-Fi setup requires ac:i access (CIA build).");
 }
 static int hex(char c) { return c<='9' ? c-'0':(c|32)-'a'+10; }
 static bool derive_key(unsigned char key[32]) {
@@ -103,7 +103,6 @@ static Result save_profile(void) {
     if(R_FAILED(r)) { ACI_LoadNetworkSetting(wifi_setup.slot); return r; }
     memmove(wifi_setup.profiles[wifi_setup.slot],wifi_setup.ssid,33);
     wifi_setup.password_saved=true;
-    wifi_wipe(wifi_setup.password,sizeof wifi_setup.password);
     return 0;
 }
 static Result start_connect(uint64_t now) {

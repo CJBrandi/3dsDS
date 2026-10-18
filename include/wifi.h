@@ -1,7 +1,7 @@
 #ifndef N3DS_WIFI_H
 #define N3DS_WIFI_H
 #include "wifi_settings.h"
-/* Fields displayed in the GUI never include plaintext passwords. */
+/* Password stays in RAM for explicit Show/Edit; persisted only in the system profile. */
 typedef struct {
     char ssid[33], password[65], profiles[3][33], status[96];
     WifiSecurity security;

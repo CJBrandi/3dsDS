@@ -1,5 +1,6 @@
 #include "ui.h"
 #include <stdio.h>
+#include <string.h>
 #define BG 0x0c131d
 #define PANEL 0x162332
 #define LINE 0x25384b
@@ -111,34 +112,48 @@ void ui_draw(const UiModel *m, UiPage page, UiPopup popup) {
         text(12,178,10,MUTED,"2.4 GHz network / direct UDP connection");
 
     } else if(page==PAGE_WIFI) {
-        snprintf(s,sizeof s,"Try: %.32s",m->wifi_suggestion && m->wifi_suggestion[0] ? m->wifi_suggestion:"set team in Setup");
-        text(12,44,11,TEAL,s);
-        if(m->wifi_suggestion && m->wifi_suggestion[0]) button(246,40,62,23,"Use",false,m->wifi_busy);
-        button(12,68,296,34,"",false,m->wifi_busy);
-        text(22,71,8,MUTED,"NETWORK NAME / TAP TO EDIT");
-        text(22,83,13,WHITE,m->wifi_ssid && m->wifi_ssid[0] ? m->wifi_ssid:"Tap to enter SSID");
-        button(12,108,296,32,"",false,m->wifi_busy);
-        text(22,110,8,MUTED,"PASSWORD / TAP TO ENTER");
-        text(22,122,12,WHITE,m->wifi_security==WIFI_OPEN ? "Not needed for open network":
-            m->wifi_password_set ? "********":"Tap to enter password");
-        button(12,147,190,26,m->wifi_security==WIFI_OPEN ? "Open network  v":"WPA2 Personal (AES)  v",false,m->wifi_busy);
-        snprintf(s,sizeof s,"Slot %u  v",m->wifi_slot+1);
-        button(210,147,98,26,s,false,m->wifi_busy);
-        box(12,180,296,31,m->wifi_busy ? 0x572b36:0x17664f);
-        paint_text_centered(160,195.5f,16,WHITE,m->wifi_busy ? "Cancel connection":"Save & connect");
-        snprintf(s,sizeof s,"Replaces slot %u: %.29s",m->wifi_slot+1,m->wifi_slot_ssid && m->wifi_slot_ssid[0] ? m->wifi_slot_ssid:"empty");
-        text(12,215,9,AMBER,s);
+        bool found=m->wifi_suggestion && m->wifi_suggestion[0];
+        text(12,44,9,found ? TEAL:MUTED,found ? "Join Recommended Network:":"No team network found in scan");
+        if(found) {
+            text(12,60,13,WHITE,m->wifi_suggestion);
+            box(240,43,68,37,0x17664f);
+            paint_text_centered(274,61.5f,16,WHITE,"Join");
+        }
+        snprintf(s,sizeof s,"%.23s%s",m->wifi_ssid && m->wifi_ssid[0] ? m->wifi_ssid:"Select network  v",m->wifi_ssid && m->wifi_ssid[0] && strlen(m->wifi_ssid)>23 ? "...":"");
+        button(12,89,240,32,s,false,m->wifi_busy);
+        button(260,89,48,32,m->wifi_scanning ? "...":"Scan",false,m->wifi_busy);
+        button(12,129,240,32,"",false,m->wifi_busy);
+        text(20,131,8,MUTED,"PASSWORD / TAP TO EDIT");
+        const char *password=m->wifi_security==WIFI_OPEN && m->wifi_ssid && m->wifi_ssid[0] ? "Not required":
+            m->wifi_show_password && m->wifi_password && m->wifi_password[0] ? m->wifi_password:
+            m->wifi_password_set ? "********":"Tap to enter password";
+        snprintf(s,sizeof s,"%.24s%s",password,strlen(password)>24 ? "...":"");
+        text(20,144,11,WHITE,s);
+        button(260,129,48,32,m->wifi_show_password ? "Hide":"Show",false,m->wifi_busy);
+        snprintf(s,sizeof s,"Detected security: %s",m->wifi_ssid && m->wifi_ssid[0] ? wifi_security_name(m->wifi_security):"select a network");
+        text(12,171,10,MUTED,s);
+        box(12,194,296,31,m->wifi_busy ? 0x572b36:0x17664f);
+        paint_text_centered(160,209.5f,16,WHITE,m->wifi_busy ? "Cancel connection":"Join selected network");
         snprintf(s,sizeof s,"%.58s",m->wifi_status ? m->wifi_status:"");
-        text(12,229,8,m->wifi_available ? MUTED:RED,s);
-        if(popup==POPUP_SECURITY || popup==POPUP_WIFI_SLOT) {
+        text(12,230,8,m->wifi_available ? MUTED:RED,s);
+        if(popup==POPUP_NETWORKS) {
             box(0,38,320,202,BG);
-            text(16,45,11,MUTED,popup==POPUP_SECURITY ? "SECURITY":"SAVE TO SYSTEM WI-FI SLOT");
-            int count=popup==POPUP_SECURITY ? 2:3;
-            for(int i=0;i<count;i++) {
-                if(popup==POPUP_SECURITY) snprintf(s,sizeof s,"%s",i==0 ? "WPA2 Personal (AES)":"Open network");
-                else snprintf(s,sizeof s,"Wi-Fi slot %u",i+1);
-                button(12,64+i*45,296,43,s,popup==POPUP_SECURITY ? (int)m->wifi_security==i:(int)m->wifi_slot==i,false);
+            text(16,45,11,MUTED,"FOUND NETWORKS / AUTOMATIC SECURITY");
+            for(unsigned i=0;i<5;i++) {
+                unsigned index=m->network_page*5+i;
+                if(index>=m->network_count) break;
+                const WifiNetwork *n=&m->networks[index];
+                box(12,64+i*27,296,25,PANEL);
+                box(12,87+i*27,296,2,LINE);
+                snprintf(s,sizeof s,"%.24s%s",n->ssid,strlen(n->ssid)>24 ? "...":"");
+                text(22,66+i*27,11,wifi_security_supported(n->security) ? WHITE:MUTED,s);
+                text(22,80+i*27,7,MUTED,wifi_security_name(n->security));
             }
+            if(!m->network_count) text(16,93,12,MUTED,m->wifi_scanning ? "Scanning...":"No networks found. Tap Scan to retry.");
+            button(12,207,80,27,"Previous",false,false);
+            button(228,207,80,27,"Next",false,false);
+            snprintf(s,sizeof s,"Page %u",m->network_page+1);
+            text(135,214,10,MUTED,s);
         }
     } else {
         stick(16,47,"CIRCLE PAD",m->controls.axes[0],m->controls.axes[1]);
@@ -165,10 +180,16 @@ UiAction ui_touch(UiPage page,UiPopup popup,int x,int y,bool enabled) {
     if(x<0 || x>=320 || y<0 || y>=240) return UI_NONE;
     if(enabled) return UI_DISABLE;
     if(popup!=POPUP_NONE) {
-        int count=popup==POPUP_MODE ? 3:popup==POPUP_ALLIANCE ? 6:popup==POPUP_SECURITY ? 2:3;
-        int height=popup==POPUP_ALLIANCE ? 26:45;
-        UiAction first=popup==POPUP_MODE ? UI_TELEOP:popup==POPUP_ALLIANCE ? UI_RED1:popup==POPUP_SECURITY ? UI_SECURITY_WPA2:UI_SLOT1;
-        for(int i=0;i<count;i++) if(inside(x,y,12,64+i*height,296,height-2)) return first+i;
+        if(popup==POPUP_NETWORKS) {
+            for(int i=0;i<5;i++) if(inside(x,y,12,64+i*27,296,25)) return UI_NETWORK0+i;
+            if(inside(x,y,12,207,80,27)) return UI_NETWORK_PREV;
+            if(inside(x,y,228,207,80,27)) return UI_NETWORK_NEXT;
+        } else {
+            int count=popup==POPUP_MODE ? 3:6;
+            int height=popup==POPUP_MODE ? 45:26;
+            UiAction first=popup==POPUP_MODE ? UI_TELEOP:UI_RED1;
+            for(int i=0;i<count;i++) if(inside(x,y,12,64+i*height,296,height-2)) return first+i;
+        }
         return UI_CLOSE_POPUP;
     }
     for(int i=0;i<4;i++) if(inside(x,y,8+77*i,6,i==3 ? 73:72,30)) return UI_TAB_DRIVE+i;
@@ -182,12 +203,12 @@ UiAction ui_touch(UiPage page,UiPopup popup,int x,int y,bool enabled) {
 
     }
     if(page==PAGE_WIFI) {
-        if(inside(x,y,246,40,62,23)) return UI_WIFI_SUGGEST;
-        if(inside(x,y,12,68,296,34)) return UI_WIFI_SSID;
-        if(inside(x,y,12,108,296,32)) return UI_WIFI_PASSWORD;
-        if(inside(x,y,12,147,190,26)) return UI_OPEN_SECURITY;
-        if(inside(x,y,210,147,98,26)) return UI_OPEN_WIFI_SLOT;
-        if(inside(x,y,12,180,296,31)) return UI_WIFI_CONNECT;
+        if(inside(x,y,240,43,68,37)) return UI_WIFI_SUGGEST;
+        if(inside(x,y,12,89,240,32)) return UI_WIFI_NETWORKS;
+        if(inside(x,y,260,89,48,32)) return UI_WIFI_SCAN;
+        if(inside(x,y,12,129,240,32)) return UI_WIFI_PASSWORD;
+        if(inside(x,y,260,129,48,32)) return UI_WIFI_SHOW;
+        if(inside(x,y,12,194,296,31)) return UI_WIFI_CONNECT;
     }
     return UI_NONE;
 }

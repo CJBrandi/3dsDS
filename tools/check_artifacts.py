@@ -18,6 +18,7 @@ title_id = struct.unpack_from("<Q", cia, content_offset + 0x118)[0]
 assert title_id == 0x000400000F3D5200, f"Unexpected title ID: {title_id:016X}"
 assert len(cia) >= content_offset + content, "Truncated CIA"
 assert b"ac:i\0\0\0\0" in cia[content_offset + 0x200:content_offset + 0xa00], "Missing Wi-Fi configuration service permission"
+assert b"nwm::INF" in cia[content_offset + 0x200:content_offset + 0xa00], "Missing Wi-Fi scan service permission"
 notices = root.parent / "docs" / "THIRD_PARTY_NOTICES.txt"
 (root / "THIRD_PARTY_NOTICES.txt").write_bytes(notices.read_bytes())
 files = [root / name for name in ("3dsDS.cia", "THIRD_PARTY_NOTICES.txt")]

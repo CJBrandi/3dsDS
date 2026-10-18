@@ -7,6 +7,13 @@
 typedef uintptr_t u32; /* Keep buffer pointers intact in the 64-bit host fake. */
 typedef int32_t Result;
 typedef unsigned Handle;
+typedef void *Thread;
+#define IPC_BUFFER_W 2
+static inline u32 IPC_Desc_Buffer(size_t n,unsigned type) {return (n<<4)|(type<<1)|8;}
+Result srvGetServiceHandle(Handle *h,const char *name);
+Thread threadCreate(void (*entry)(void *),void *arg,size_t stack,int priority,int core,bool detached);
+Result threadJoin(Thread thread,uint64_t timeout);
+void threadFree(Thread thread);
 typedef struct { unsigned slot_mask; } acuConfig;
 #define R_FAILED(r) ((r)<0)
 #define R_SUCCEEDED(r) ((r)>=0)

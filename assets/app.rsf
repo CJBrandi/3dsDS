@@ -117,6 +117,7 @@ AccessControlInfo:
     - hid:USER
     - ir:rst
     - ndm:u
+    - nwm::INF
     - ptm:u
     - soc:U
 SystemControlInfo:
@@ -131,5 +132,6 @@ SystemControlInfo:
     hid: 0x0004013000001d02
     ir: 0x0004013000003302
     ndm: 0x0004013000002b02
+    nwm: 0x0004013000002d02
     ptm: 0x0004013000002202
     socket: 0x0004013000002e02

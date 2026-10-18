@@ -50,10 +50,6 @@ static void reset(void) {
     strcpy(wifi_setup.ssid,"IEEE");strcpy(wifi_setup.password,"password");
 }
 static void settings(void) {
-    char suggested[33];
-    wifi_suggest(1234,false,suggested);assert(!strcmp(suggested,"FRC-1234"));
-    wifi_suggest(1234,true,suggested);assert(!strcmp(suggested,"FRC-AP-1234"));
-    wifi_suggest(0,false,suggested);assert(!suggested[0]);
     assert(wifi_credentials_valid("IEEE","password",WIFI_WPA2));
     assert(!wifi_credentials_valid("IEEE","short",WIFI_WPA2));
     assert(!wifi_credentials_valid("","password",WIFI_WPA2));
@@ -69,7 +65,7 @@ int main(void) {
     assert(!memcmp(stage_pass,"password",8));
     const unsigned char expected[32]={0xf4,0x2c,0x6f,0xc5,0x2d,0xf0,0xeb,0xef,0x9e,0xbb,0x4b,0x90,0xb3,0x8a,0x5f,0x90,0x2e,0x83,0xfe,0x1b,0x13,0x5a,0x70,0xe2,0x3a,0xed,0x76,0x2e,0x97,0x10,0xa1,0x2e};
     assert(!memcmp(stage_key,expected,32));
-    assert(wifi_setup.password_saved && !wifi_setup.password[0]);
+    assert(wifi_setup.password_saved && !strcmp(wifi_setup.password,"password"));
     wifi_setup_poll(110);assert(!wifi_setup.busy && !wifi_setup.error);
     assert(wifi_setup_connect(120)); /* Reconnect saved profile, no password required. */
     wifi_setup_poll(125);wifi_setup_poll(130);
@@ -86,5 +82,5 @@ int main(void) {
     for(unsigned i=0;i<64;i++) assert(stage_pass[i]==0);
     assert(security==0);wifi_setup_cancel();assert(!wifi_setup.busy && cancels==1);
     wifi_setup_exit();
-    puts("PASS: Wi-Fi recommendation, PSK vector, profile staging, reconnect, timeout and cancellation");
+    puts("PASS: Wi-Fi credentials, PSK vector, profile staging, reconnect, timeout and cancellation");
 }

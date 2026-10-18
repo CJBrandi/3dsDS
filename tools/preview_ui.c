@@ -32,10 +32,11 @@ void paint_text_centered(float cx,float cy,float size,uint32_t c,const char *tex
 void paint_end(void) { fputs("</svg>",file); fclose(file); }
 int main(int argc,char **argv) {
     directory=argc>1 ? argv[1]:"docs";
+    WifiNetwork networks[]={ {.ssid="FRC-1234",.security=WIFI_WPA2}, {.ssid="FRC-AP-1234-A",.security=WIFI_WPA2}, {.ssid="Workshop",.security=WIFI_OPEN}, {.ssid="Radio WPA3",.security=WIFI_WPA3}, {.ssid="Guest",.security=WIFI_OPEN} };
     UiModel m={.connected=true,.wifi=true,.code=true,.configured=true,.voltage=12.54f,
         .age_ms=18,.neutral=true,.team=1234,.target="10.12.34.2",.message="Ready. Tap ENABLE on the Drive screen.",
-        .wifi_ssid="FRC-1234",.wifi_suggestion="FRC-1234",.wifi_slot_ssid="",.wifi_available=true,
-        .wifi_status="Enter password, then save and connect.",.wifi_password_set=true,.wifi_slot=2,
+        .wifi_ssid="FRC-1234",.wifi_suggestion="FRC-1234",.wifi_available=true,
+        .wifi_status="Remembers only your last used network.",.wifi_password_set=true,.wifi_password="robotpass",.networks=networks,.network_count=5,
         .controls={{0,0,0,0},0,-1}};
     UiPage page=argc>2 ? (UiPage)atoi(argv[2]):PAGE_DRIVE;
     UiPopup popup=POPUP_NONE;
@@ -43,8 +44,9 @@ int main(int argc,char **argv) {
         if(!strcmp(argv[3],"enabled")) { m.enabled=true; m.rio_enabled=true; }
         if(!strcmp(argv[3],"mode")) popup=POPUP_MODE;
         if(!strcmp(argv[3],"alliance")) popup=POPUP_ALLIANCE;
-        if(!strcmp(argv[3],"security")) popup=POPUP_SECURITY;
-        if(!strcmp(argv[3],"slot")) popup=POPUP_WIFI_SLOT;
+        if(!strcmp(argv[3],"networks")) popup=POPUP_NETWORKS;
+        if(!strcmp(argv[3],"show")) m.wifi_show_password=true;
+        if(!strcmp(argv[3],"missing")) { m.wifi_suggestion=NULL; m.wifi_ssid=""; m.wifi_password_set=false; }
     }
     if(page==PAGE_INPUTS) { m.controls=(Controls){{25,-40,0,0},5,45}; m.neutral=false; }
     ui_draw(&m,page,popup);

@@ -1,10 +1,5 @@
 #include "wifi_settings.h"
-#include <stdio.h>
 #include <string.h>
-void wifi_suggest(unsigned team,bool ap,char out[33]) {
-    if(team<1 || team>25599) { out[0]=0; return; }
-    snprintf(out,33,ap ? "FRC-AP-%u":"FRC-%u",team);
-}
 static bool printable_ascii(const char *s) {
     for(;*s;s++) if((unsigned char)*s<32 || (unsigned char)*s>126) return false;
     return true;

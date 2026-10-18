@@ -24,7 +24,7 @@ The experimental CIA Title ID is `000400000F3D5200`, with Unique ID `0xF3D52`. I
 
 1. Install `3dsDS.cia` with FBI and launch it from HOME Menu.
 2. Open **Setup** and enter your team number, then open **Wi-Fi** to configure a 2.4 GHz network that reaches the robot. The app configures the console's connection; it does not configure the radio itself.
-3. On **Wi-Fi**, enter the network name and password, choose the saved Wi-Fi slot to replace, and tap **Save & connect**. Wait for the connection result.
+3. On **Wi-Fi**, wait for the scan, then tap the recommended **Join** button or pick a detected network. Enter its password in the native 3DS keyboard and tap **Join selected network**.
 4. Open **Setup** and tap **TEAM NUMBER**. Enter your team and the app derives `10.TE.AM.2` (team 1234 → `10.12.34.2`). There is no IP entry or mDNS dependency. The robot must use that standard team address, and the 3DS must have a route to it.
 5. Wait for **CONNECTED** and robot code **Running**. Verify battery and control readings. The top **ENABLE REQUESTED** label means the DS is requesting enable; **ROBOT REPORTS** is the robot's reported state.
 6. With the robot secured and wheels raised for the first test, center both sticks and release all physical buttons/D-pad. On **Drive**, tap the large **ENABLE** button.
@@ -53,17 +53,17 @@ Communication loss at 250 ms, missing robot code, socket failures, and a main-lo
 
 ## In-app Wi-Fi setup
 
-The Wi-Fi page suggests **`FRC-<team>`**, for example `FRC-1234`. Tap **Use** to copy the suggestion, or tap the network-name field to enter the exact SSID, including any configured prefix or suffix. A separate VH-109 access-point radio can use `FRC-AP-<team>-<suffix>`. Suggestions are derived from the team number; this version does **not** scan for nearby access points. Verify the name against your radio configuration.
+The Wi-Fi tab scans nearby 2.4 GHz access points and detects security from their advertised beacon information. **Join Recommended Network: [name]** and a large **Join** button appear only when a compatible matching team network is present in a scan less than 30 seconds old. Names such as `FRC-1234` and `FRC-AP-1234-A` match team 1234; `FRC-12345` does not. Tap **Scan** to refresh. Hidden SSIDs are not supported.
 
-Tap Password to open the 3DS software keyboard with characters masked and predictive learning disabled. WPA2 Personal (AES) accepts 8–63 printable ASCII characters or a 64-digit hexadecimal PSK. Open networks are also supported. WPA3-only, Enterprise, WEP, and captive-portal sign-in are not supported by this page.
+The network selector lists actual scan results with detected security. Selecting a WPA2 network opens the native 3DS password keyboard; selecting an open network needs no password. Tap the password field to edit it again, and the small **Show/Hide** button to reveal or mask the password entered this session. Saved system passwords are not read back into the app. WPA3-only, enterprise, and legacy security are labelled unsupported and cannot be joined.
 
-Choose **Slot 1, 2, or 3**. The page shows the network currently saved in that slot. **Save & connect replaces that console Wi-Fi profile**, uses DHCP and automatic DNS, clears any old proxy/WPS fallback settings, and attempts a connection. The app initially chooses an empty slot when one is available. Credentials persist in the console's normal network settings; the app never writes them into its SD config or logs. The password is wiped from app memory after a successful save. You can tap Connect again to reconnect the just-saved profile without retyping it.
+The app remembers **one last-used connection**, reusing one console system Wi-Fi profile. Joining a different network replaces that remembered profile; there is no slot selector or multi-network manager. On first use it chooses an empty system profile if possible, otherwise the third profile. Passwords persist in the console's network settings; only team, alliance, the profile identifier, and detected security are saved to the app's SD config. Session password memory is cleared on exit or when selecting a different network. No passwords are logged.
 
-Connection switching is asynchronous, with a Cancel button and a 30-second connection timeout. Robot enable is blocked while connecting, and completion does not enable it. HOME/sleep cancels an unfinished connection attempt and clears robot enable.
+Connections run asynchronously, can be cancelled, and time out. Robot enable is blocked during scanning or connection changes. HOME or sleep cancels the connection attempt and discards scan results. The app does not require an Internet connection: robot radios can be local networks.
 
-The VH-109 [firmware changelog](https://frc-radio.vivid-hosting.net/advanced-topics/firmware-changelog) documents WPA2/3 transitional compatibility in version 2.0.1; 2.0.0 used WPA3-only on 2.4 GHz. The 3DS requires the WPA2-compatible mode. Configure the radio's 2.4 GHz Wi-Fi option and security accordingly. The radio manufacturer's AP naming and firmware behavior can differ by mode/version, so edit the suggestion when necessary.
+The VH-109 [firmware changelog](https://frc-radio.vivid-hosting.net/advanced-topics/firmware-changelog) documents WPA2/3 transitional compatibility in version 2.0.1; 2.0.0 used WPA3-only on 2.4 GHz. Use the WPA2-compatible mode for 3DS.
 
-The AC service extension calls used to edit profiles follow the [AC service documentation](https://www.3dbrew.org/wiki/AC_Services) and [Wi-Fi slot structure](https://3dbrew.org/wiki/Config_Savegame#WiFi_Slot_Structure). They compile and pass service-mock tests, but **profile writes and association on real 3DS hardware have not been validated**.
+Scanning follows the [NWM infrastructure request](https://docs.mikage.app/NWMINFRecvBeaconBroadcastData/) and [beacon reply layout](https://docs.mikage.app/NWM_Services/#beacondatareply-structure). Profile editing follows the [AC service documentation](https://www.3dbrew.org/wiki/AC_Services). These calls compile and pass service-mock tests; **physical 3DS scanning, profile writes, and association still require hardware validation**. Scan errors are shown explicitly and do not generate guessed recommendations.
 
 ## Robot-side controller mapping
 
