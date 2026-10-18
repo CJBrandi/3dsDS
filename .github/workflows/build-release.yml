@@ -22,10 +22,12 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
+      - name: Install host test crypto library
+        run: sudo apt-get update && sudo apt-get install -y libmbedtls-dev
       - run: make test
 
   build:
-    name: Build 3DSX and CIA
+    name: Build HOME Menu CIA
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -38,7 +40,7 @@ jobs:
           python3 - <<'PY'
           import os, re
           ref = os.environ['BUILD_REF']
-          version = ref.removeprefix('refs/tags/v') if ref.startswith('refs/tags/') else '0.2.0'
+          version = ref.removeprefix('refs/tags/v') if ref.startswith('refs/tags/') else '0.3.0'
           match = re.fullmatch(r'(\d+)\.(\d+)\.(\d+)(?:-[A-Za-z0-9.-]+)?', version)
           if not match:
               raise SystemExit('Tags must be vMAJOR.MINOR.PATCH, optionally with a prerelease suffix')
@@ -63,17 +65,14 @@ jobs:
           build/cia-tools/makerom -f cia -o dist/3dsDS.cia -target t -rsf assets/app.rsf \
             -elf dist/3dsDS.elf -icon dist/3dsDS.smdh -banner build/banner.bnr \
             -major "$VERSION_MAJOR" -minor "$VERSION_MINOR" -micro "$VERSION_MICRO"
-          python3 tools/package.py
           python3 tools/check_artifacts.py
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: 3dsDS-install-files
           if-no-files-found: error
           path: |
-            dist/3dsDS.3dsx
-            dist/3dsDS.smdh
             dist/3dsDS.cia
-            dist/3dsDS-sd.zip
+            dist/THIRD_PARTY_NOTICES.txt
             dist/SHA256SUMS
 
   release:

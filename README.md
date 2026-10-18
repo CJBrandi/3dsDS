@@ -1,12 +1,14 @@
 # 3dsDS
 
-A native Nintendo New 3DS XL homebrew driver station for a roboRIO running FRC robot code. Uses the built-in controls and the console's 2.4 GHz Wi-Fi. No PC bridge, Python, external controller, or extra runtime packages are needed on the 3DS. Written in C using devkitARM/libctru and the statically linked Citro2D/Citro3D graphics libraries.
+A native Nintendo New 3DS XL homebrew driver station for a roboRIO running FRC robot code. Uses the built-in controls and the console's 2.4 GHz Wi-Fi. No PC bridge, Python, external controller, or extra runtime packages are needed on the 3DS. Written in C using devkitARM/libctru, statically linked Citro2D/Citro3D graphics, and Mbed TLS crypto for WPA2 password derivation.
 
-**Status:** builds into `.3dsx` and installable `.cia` packages; protocol, safety, and UI interlock tests pass on Linux. Physical 3DS Wi-Fi/input behavior and compatibility with an actual **2026 roboRIO image have not yet been tested**. This implements the standalone UDP control protocol from the supplied `nexus.py`, with protocol corrections. It is an experimental practice/bench driver station, with no FMS integration or competition certification claimed.
+**Status:** builds into an installable HOME Menu `.cia`; protocol, safety, UI, and mocked Wi-Fi service tests pass on Linux. Physical 3DS Wi-Fi/input behavior and compatibility with an actual **2026 roboRIO image have not yet been tested**. This implements the standalone UDP control protocol from the supplied `nexus.py`, with protocol corrections. It is an experimental practice/bench driver station, with no FMS integration or competition certification claimed.
 
 ![Interface layout preview](docs/ui-preview.png)
 
-[Setup, Inputs, full-screen Disable, and selector previews](docs/ui-states.png)
+[Setup, Inputs, full-screen Disable, and Wi-Fi previews](docs/ui-states.png)
+
+[All closed screens](docs/renders/screens-closed.png) · [All open selectors](docs/renders/selectors-open.png)
 
 The preview is generated from the same UI layout code with a host SVG renderer. It illustrates the design; the console uses the 3DS system font and has not yet been photographed running this build.
 
@@ -14,22 +16,21 @@ The preview is generated from the same UI layout code with a host SVG renderer. 
 
 Download the install files from [GitHub Releases](https://github.com/CJBrandi/3dsDS/releases).
 
-- **HOME Menu:** copy `3dsDS.cia` to the SD card, open FBI, select the file, and choose Install. Launch 3dsDS from HOME Menu. The CIA includes its icon, banner, code, and graphics libraries.
-- **Homebrew Launcher:** extract `3dsDS-sd.zip` onto the SD card, or place `3dsDS.3dsx` in `/3ds/3dsDS/`.
+Copy `3dsDS.cia` to the SD card, open FBI, select the file, and choose Install. Launch 3dsDS from HOME Menu. This app is distributed as a CIA only and has no Quit-to-launcher button. Use HOME to leave it.
 
-Both formats use the same saved connection settings. The experimental CIA Title ID is `000400000F3D5200`, with Unique ID `0xF3D52`. It is project-assigned, not registered with Nintendo or reserved by Universal-DB.
+The experimental CIA Title ID is `000400000F3D5200`, with Unique ID `0xF3D52`. It is project-assigned, not registered with Nintendo or reserved by Universal-DB. Installing a newer CIA with this ID updates the app.
 
 ## Run
 
-1. Extract `dist/3dsDS-sd.zip` onto the SD card. The executable ends up at `/3ds/3dsDS/3dsDS.3dsx`.
-2. Connect the 3DS to a 2.4 GHz access point connected to the robot network using the console's Internet Settings. The AP must support the 3DS's Wi-Fi/security capabilities; a 5 GHz-only or WPA3-only network will not work. The roboRIO can connect to that network over Ethernet. This app does not configure the radio or access point.
-3. Launch **3dsDS** from the Homebrew Launcher.
+1. Install `3dsDS.cia` with FBI and launch it from HOME Menu.
+2. Open **Setup** and enter your team number, then open **Wi-Fi** to configure a 2.4 GHz network that reaches the robot. The app configures the console's connection; it does not configure the radio itself.
+3. On **Wi-Fi**, enter the network name and password, choose the saved Wi-Fi slot to replace, and tap **Save & connect**. Wait for the connection result.
 4. Open **Setup** and tap **TEAM NUMBER**. Enter your team and the app derives `10.TE.AM.2` (team 1234 → `10.12.34.2`). There is no IP entry or mDNS dependency. The robot must use that standard team address, and the 3DS must have a route to it.
 5. Wait for **CONNECTED** and robot code **Running**. Verify battery and control readings. The top **ENABLE REQUESTED** label means the DS is requesting enable; **ROBOT REPORTS** is the robot's reported state.
 6. With the robot secured and wheels raised for the first test, center both sticks and release all physical buttons/D-pad. On **Drive**, tap the large **ENABLE** button.
 7. The entire lower screen turns red with **DISABLE**. Tap anywhere on it to disable the robot.
 
-The app starts disabled in Teleop every launch. Team number and alliance station persist at `/3ds/3dsDS/config.txt`. The lower screen has Drive, Setup, and Inputs tabs while disabled. Drive uses dropdown selectors for mode and alliance. Setup accepts only the team number; the automatically derived address is read-only. Inputs shows two stick plots, ten physical buttons, and a D-pad graphic that highlights directions and diagonals. While enabled there are no tabs or configuration controls on the lower screen: every pixel is the Disable touch target.
+The app starts disabled in Teleop every launch. Team number and alliance station persist at `/3ds/3dsDS/config.txt`. The lower screen has Drive, Setup, Inputs, and Wi-Fi tabs while disabled. Drive uses dropdown selectors for mode and alliance. Setup accepts only the team number; the automatically derived address is read-only. Inputs shows two stick plots, ten physical buttons, and a D-pad graphic that highlights directions and diagonals. While enabled there are no tabs or configuration controls on the lower screen: every pixel is the Disable touch target.
 
 If a firewall separates the devices, allow 3DS → roboRIO UDP 1110 and roboRIO → 3DS UDP 1150.
 
@@ -43,13 +44,26 @@ If a firewall separates the devices, allow 3DS → roboRIO UDP 1110 and roboRIO 
 | Connection loss | Clear enable; reconnecting stays disabled |
 | Mode selector while disabled | Teleop, Test, or Autonomous |
 | Alliance selector while disabled | Red 1–3 or Blue 1–3 |
-| Quit on Setup while disabled | Send disabled packets and exit |
 
 There are no physical button enable/disable bindings, button combos, or hold-to-run controls. START, SELECT, ZL, and ZR are robot inputs along with the face and shoulder buttons. A new touch-down is required for each action, so the same touch that enables cannot immediately disable, and a held touch cannot re-enable after a fault. Dropdown dismissal does not activate a button underneath it.
 
 The robot's reported E-stop is honored and latched for the app session. Reset an E-stop at the robot and restart the app. This UI has no manual E-stop action; the red screen requests normal Disable.
 
 Communication loss at 250 ms, missing robot code, socket failures, and a main-loop stall over 100 ms clear enable. HOME/sleep hooks send a disabled packet before suspension when networking is still available. While suspended the app cannot transmit; the roboRIO communication watchdog provides the fallback. On resume reply history is cleared. Reconnection, code recovery, and HOME return never automatically enable; tap ENABLE again with neutral inputs.
+
+## In-app Wi-Fi setup
+
+The Wi-Fi page suggests **`FRC-<team>`**, for example `FRC-1234`. Tap **Use** to copy the suggestion, or tap the network-name field to enter the exact SSID, including any configured prefix or suffix. A separate VH-109 access-point radio can use `FRC-AP-<team>-<suffix>`. Suggestions are derived from the team number; this version does **not** scan for nearby access points. Verify the name against your radio configuration.
+
+Tap Password to open the 3DS software keyboard with characters masked and predictive learning disabled. WPA2 Personal (AES) accepts 8–63 printable ASCII characters or a 64-digit hexadecimal PSK. Open networks are also supported. WPA3-only, Enterprise, WEP, and captive-portal sign-in are not supported by this page.
+
+Choose **Slot 1, 2, or 3**. The page shows the network currently saved in that slot. **Save & connect replaces that console Wi-Fi profile**, uses DHCP and automatic DNS, clears any old proxy/WPS fallback settings, and attempts a connection. The app initially chooses an empty slot when one is available. Credentials persist in the console's normal network settings; the app never writes them into its SD config or logs. The password is wiped from app memory after a successful save. You can tap Connect again to reconnect the just-saved profile without retyping it.
+
+Connection switching is asynchronous, with a Cancel button and a 30-second connection timeout. Robot enable is blocked while connecting, and completion does not enable it. HOME/sleep cancels an unfinished connection attempt and clears robot enable.
+
+The VH-109 [firmware changelog](https://frc-radio.vivid-hosting.net/advanced-topics/firmware-changelog) documents WPA2/3 transitional compatibility in version 2.0.1; 2.0.0 used WPA3-only on 2.4 GHz. The 3DS requires the WPA2-compatible mode. Configure the radio's 2.4 GHz Wi-Fi option and security accordingly. The radio manufacturer's AP naming and firmware behavior can differ by mode/version, so edit the suggestion when necessary.
+
+The AC service extension calls used to edit profiles follow the [AC service documentation](https://www.3dbrew.org/wiki/AC_Services) and [Wi-Fi slot structure](https://3dbrew.org/wiki/Config_Savegame#WiFi_Slot_Structure). They compile and pass service-mock tests, but **profile writes and association on real 3DS hardware have not been validated**.
 
 ## Robot-side controller mapping
 
@@ -90,18 +104,18 @@ boolean action = driver.getRawButton(1); // A
 
 ## Build and test
 
-With devkitPro's `3ds-dev` toolchain installed:
+With devkitPro's `3ds-dev` and `3ds-mbedtls` packages installed:
 
 ```sh
 export DEVKITPRO=/opt/devkitpro
-make -j2       # 3DSX + SMDH
+make -j2       # ELF + icon used for the CIA
 make cia-tools # download pinned, checksum-verified Linux x86_64 packaging tools
-make release   # 3DSX + CIA + SD zip + verified headers/checksums
-make test       # host C compiler; AddressSanitizer + UndefinedBehaviorSanitizer
-make package   # Python 3 standard library, for the SD zip only
+make release   # HOME Menu CIA + notices + verified headers/checksums
+make test       # host C compiler + libmbedtls-dev; address/undefined sanitizers
+make preview   # host SVG layout preview
 ```
 
-`make test` does not require the 3DS SDK. It also checks every lower-screen pixel on every page/popup state maps to Disable while enabled, dropdown isolation, and team-only setup. It exercises exact packet vectors, date tags, telemetry offsets, malformed/truncated replies, all POV combinations, deadzones, touch enable/disable, each disabling condition, recovery without automatic enable, E-stop latching, duplicate/outdated replies, and sequence rollover. `make release` outputs `dist/3dsDS.3dsx`, `.smdh`, `.cia`, `3dsDS-sd.zip`, and `SHA256SUMS`; `make clean` removes generated outputs.
+`make test` requires a host C compiler and `libmbedtls-dev`, but not the 3DS SDK. Wi-Fi tests use a fake AC service and a known WPA2 PSK vector to check profile staging, save failures, reconnect, timeout, cancellation, and key/password handling. It also checks every lower-screen pixel on every page/popup state maps to Disable while enabled, dropdown isolation, and team-only setup. It exercises exact packet vectors, date tags, telemetry offsets, malformed/truncated replies, all POV combinations, deadzones, touch enable/disable, each disabling condition, recovery without automatic enable, E-stop latching, duplicate/outdated replies, and sequence rollover. `make release` outputs `dist/3dsDS.cia`, `THIRD_PARTY_NOTICES.txt`, and `SHA256SUMS`; `make clean` removes generated outputs.
 
 For this workspace the SDK was extracted from the official `devkitpro/devkitarm` container into a local cache. Rebuild here with:
 
@@ -130,17 +144,17 @@ Before normal use, verify disabled startup, axis signs, touch enable/disable, Wi
 Every push to `main` and each pull request runs host tests and cross-compiles with a pinned official devkitPro container. CIA packaging runs on the Ubuntu 24.04 host because makerom requires a newer glibc than the SDK image. The install artifacts are verified before upload. Artifacts can be downloaded from the workflow run. Creating a version tag publishes a GitHub Release automatically after both jobs pass:
 
 ```sh
-git tag v0.2.1
-git push origin v0.2.1
+git tag v0.3.1
+git push origin v0.3.1
 ```
 
 Tags must use `vMAJOR.MINOR.PATCH`, optionally with a prerelease suffix. CIA version fields support major/minor 0–63 and patch 0–15; the workflow validates this and puts the version into the CIA. Tags beginning with `v0.` or containing a prerelease suffix are published as prereleases. Main/PR builds have read-only repository permissions; only the tag release job receives release write permission. The workflow pins third-party actions to commits and verifies the CIA tool download hashes.
 
-The GUI uses nonblocking GPU frame acquisition to avoid waiting on graphics in the network loop. Run `make preview` for host-rendered SVG layouts. Screenshots of all screens and real hardware validation remain useful follow-up work.
+The GUI uses nonblocking GPU frame acquisition to avoid waiting on graphics in the network loop. Run `make preview` for host-rendered SVG layouts. The preview includes Wi-Fi setup and measured centering; physical console font rendering and Wi-Fi profile changes still require hardware validation.
 
 ## Universal-DB readiness
 
-Direct `.cia` and `.3dsx` assets on GitHub Releases, a public source repository, MIT license, icon, and app description are now provided. Universal-DB inclusion is a separate manual submission and is not automatic. Its current rules require disclosure of LLM-generated content; this project uses substantial AI-generated code and documentation. Its [contribution policy](https://github.com/Universal-Team/db/blob/master/CONTRIBUTING.md) also prohibits agents from generating contributions to Universal-DB itself or writing its issue/PR descriptions, so the maintainer should write and submit that request personally after hardware testing. No listing request has been submitted.
+A direct `.cia` asset on GitHub Releases, a public source repository, MIT license, icon, and app description are now provided. Universal-DB inclusion is a separate manual submission and is not automatic. Its current rules require disclosure of LLM-generated content; this project uses substantial AI-generated code and documentation. Its [contribution policy](https://github.com/Universal-Team/db/blob/master/CONTRIBUTING.md) also prohibits agents from generating contributions to Universal-DB itself or writing its issue/PR descriptions, so the maintainer should write and submit that request personally after hardware testing. No listing request has been submitted.
 
 ## References
 
@@ -149,5 +163,6 @@ The user-provided `nexus.py` was treated as protocol reference material, not as 
 - [Driver Station → roboRIO protocol](https://frcnetworking.readthedocs.io/en/latest/driverstation/ds_to_rio.html)
 - [roboRIO → Driver Station protocol](https://frcnetworking.readthedocs.io/en/latest/driverstation/rio_to_ds.html)
 - [devkitPro libctru input implementation](https://github.com/devkitPro/libctru/blob/master/libctru/source/services/hid.c)
+- [Mbed TLS license and notice](docs/THIRD_PARTY_NOTICES.txt)
 - [devkitPro socket example](https://github.com/devkitPro/3ds-examples/blob/master/network/sockets/source/sockets.c)
 - [WPILib joystick access](https://docs.wpilib.org/en/stable/docs/software/basic-programming/joystick.html)

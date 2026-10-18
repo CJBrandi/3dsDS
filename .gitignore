@@ -7,3 +7,5 @@ __pycache__/
 
 /dist/*.cia
 /dist/SHA256SUMS
+
+/dist/THIRD_PARTY_NOTICES.txt

@@ -61,14 +61,15 @@ void ui_draw(const UiModel *m, UiPage page, UiPopup popup) {
     if (m->enabled) {
         /* The complete touch surface becomes the stop target, including its edges. */
         box(0,0,320,240,0xc4263b);
-        text(72,83,44,WHITE,"DISABLE");
-        text(62,146,15,WHITE,"TAP ANYWHERE TO STOP");
+        paint_text_centered(160,120,44,WHITE,"DISABLE");
+        paint_text_centered(160,164,13,WHITE,"TAP ANYWHERE TO STOP");
         paint_end();
         return;
     }
-    button(8,6,98,30,"Drive",page==PAGE_DRIVE,false);
-    button(111,6,98,30,"Setup",page==PAGE_SETUP,false);
-    button(214,6,98,30,"Inputs",page==PAGE_INPUTS,false);
+    button(8,6,72,30,"Drive",page==PAGE_DRIVE,false);
+    button(85,6,72,30,"Setup",page==PAGE_SETUP,false);
+    button(162,6,72,30,"Inputs",page==PAGE_INPUTS,false);
+    button(239,6,73,30,"Wi-Fi",page==PAGE_WIFI,false);
     if (page == PAGE_DRIVE) {
         text(12,46,9,MUTED,"ROBOT MODE");
         button(12,61,296,31,modes[m->mode],false,false);
@@ -77,9 +78,9 @@ void ui_draw(const UiModel *m, UiPage page, UiPopup popup) {
         snprintf(s,sizeof s,"%s %u",m->alliance<3 ? "RED":"BLUE",m->alliance%3+1);
         button(12,118,296,31,s,false,false);
         text(280,126,13,TEAL,"v");
-        bool ready=m->configured && m->connected && m->code && !m->estop && m->neutral;
+        bool ready=!m->wifi_busy && m->configured && m->connected && m->code && !m->estop && m->neutral;
         box(12,166,296,43,ready ? 0x17664f : PANEL);
-        text(100,174,25,ready ? WHITE : MUTED,"ENABLE");
+        paint_text_centered(160,187.5f,25,ready ? WHITE : MUTED,"ENABLE");
         const char *reason=m->estop ? "Reset robot E-stop and restart app" :
             !m->configured ? "Set your team number in Setup" :
             !m->connected ? "Waiting for robot connection" :
@@ -106,9 +107,39 @@ void ui_draw(const UiModel *m, UiPage page, UiPopup popup) {
         text(22,84,16,WHITE,s);
         text(12,122,10,MUTED,"ROBOT ADDRESS (AUTOMATIC)");
         text(12,139,13,WHITE,m->configured ? m->target : "Enter your team number above");
-        text(12,163,10,MUTED,"Join robot Wi-Fi in System Settings.");
+        text(12,163,10,MUTED,"Configure your connection on the Wi-Fi tab.");
         text(12,178,10,MUTED,"2.4 GHz network / direct UDP connection");
-        button(12,199,296,30,"Quit to launcher",false,m->enabled);
+
+    } else if(page==PAGE_WIFI) {
+        snprintf(s,sizeof s,"Try: %.32s",m->wifi_suggestion && m->wifi_suggestion[0] ? m->wifi_suggestion:"set team in Setup");
+        text(12,44,11,TEAL,s);
+        if(m->wifi_suggestion && m->wifi_suggestion[0]) button(246,40,62,23,"Use",false,m->wifi_busy);
+        button(12,68,296,34,"",false,m->wifi_busy);
+        text(22,71,8,MUTED,"NETWORK NAME / TAP TO EDIT");
+        text(22,83,13,WHITE,m->wifi_ssid && m->wifi_ssid[0] ? m->wifi_ssid:"Tap to enter SSID");
+        button(12,108,296,32,"",false,m->wifi_busy);
+        text(22,110,8,MUTED,"PASSWORD / TAP TO ENTER");
+        text(22,122,12,WHITE,m->wifi_security==WIFI_OPEN ? "Not needed for open network":
+            m->wifi_password_set ? "********":"Tap to enter password");
+        button(12,147,190,26,m->wifi_security==WIFI_OPEN ? "Open network  v":"WPA2 Personal (AES)  v",false,m->wifi_busy);
+        snprintf(s,sizeof s,"Slot %u  v",m->wifi_slot+1);
+        button(210,147,98,26,s,false,m->wifi_busy);
+        box(12,180,296,31,m->wifi_busy ? 0x572b36:0x17664f);
+        paint_text_centered(160,195.5f,16,WHITE,m->wifi_busy ? "Cancel connection":"Save & connect");
+        snprintf(s,sizeof s,"Replaces slot %u: %.29s",m->wifi_slot+1,m->wifi_slot_ssid && m->wifi_slot_ssid[0] ? m->wifi_slot_ssid:"empty");
+        text(12,215,9,AMBER,s);
+        snprintf(s,sizeof s,"%.58s",m->wifi_status ? m->wifi_status:"");
+        text(12,229,8,m->wifi_available ? MUTED:RED,s);
+        if(popup==POPUP_SECURITY || popup==POPUP_WIFI_SLOT) {
+            box(0,38,320,202,BG);
+            text(16,45,11,MUTED,popup==POPUP_SECURITY ? "SECURITY":"SAVE TO SYSTEM WI-FI SLOT");
+            int count=popup==POPUP_SECURITY ? 2:3;
+            for(int i=0;i<count;i++) {
+                if(popup==POPUP_SECURITY) snprintf(s,sizeof s,"%s",i==0 ? "WPA2 Personal (AES)":"Open network");
+                else snprintf(s,sizeof s,"Wi-Fi slot %u",i+1);
+                button(12,64+i*45,296,43,s,popup==POPUP_SECURITY ? (int)m->wifi_security==i:(int)m->wifi_slot==i,false);
+            }
+        }
     } else {
         stick(16,47,"CIRCLE PAD",m->controls.axes[0],m->controls.axes[1]);
         stick(132,47,"C-STICK",m->controls.axes[2],m->controls.axes[3]);
@@ -126,7 +157,6 @@ void ui_draw(const UiModel *m, UiPage page, UiPopup popup) {
         const char *labels[]={"A","B","X","Y","L","R","ZR","ZL","SEL","STA"};
         for(int i=0;i<10;i++) button(12+60*(i%5),144+32*(i/5),54,28,labels[i],m->controls.buttons&(1u<<i),false);
         text(12,210,10,MUTED,"All physical controls go to joystick 0.");
-        text(12,225,9,MUTED,"Enable and disable using the touch screen.");
     }
     paint_end();
 }
@@ -135,13 +165,13 @@ UiAction ui_touch(UiPage page,UiPopup popup,int x,int y,bool enabled) {
     if(x<0 || x>=320 || y<0 || y>=240) return UI_NONE;
     if(enabled) return UI_DISABLE;
     if(popup!=POPUP_NONE) {
-        int count=popup==POPUP_MODE ? 3:6;
-        int height=popup==POPUP_MODE ? 45:26;
-        for(int i=0;i<count;i++) if(inside(x,y,12,64+i*height,296,height-2))
-            return (popup==POPUP_MODE ? UI_TELEOP:UI_RED1)+i;
+        int count=popup==POPUP_MODE ? 3:popup==POPUP_ALLIANCE ? 6:popup==POPUP_SECURITY ? 2:3;
+        int height=popup==POPUP_ALLIANCE ? 26:45;
+        UiAction first=popup==POPUP_MODE ? UI_TELEOP:popup==POPUP_ALLIANCE ? UI_RED1:popup==POPUP_SECURITY ? UI_SECURITY_WPA2:UI_SLOT1;
+        for(int i=0;i<count;i++) if(inside(x,y,12,64+i*height,296,height-2)) return first+i;
         return UI_CLOSE_POPUP;
     }
-    for(int i=0;i<3;i++) if(inside(x,y,8+103*i,6,98,30)) return UI_TAB_DRIVE+i;
+    for(int i=0;i<4;i++) if(inside(x,y,8+77*i,6,i==3 ? 73:72,30)) return UI_TAB_DRIVE+i;
     if(page==PAGE_DRIVE) {
         if(inside(x,y,12,61,296,31)) return UI_OPEN_MODE;
         if(inside(x,y,12,118,296,31)) return UI_OPEN_ALLIANCE;
@@ -149,7 +179,15 @@ UiAction ui_touch(UiPage page,UiPopup popup,int x,int y,bool enabled) {
     }
     if(page==PAGE_SETUP) {
         if(inside(x,y,12,64,296,45)) return UI_TEAM;
-        if(inside(x,y,12,199,296,30)) return UI_QUIT;
+
+    }
+    if(page==PAGE_WIFI) {
+        if(inside(x,y,246,40,62,23)) return UI_WIFI_SUGGEST;
+        if(inside(x,y,12,68,296,34)) return UI_WIFI_SSID;
+        if(inside(x,y,12,108,296,32)) return UI_WIFI_PASSWORD;
+        if(inside(x,y,12,147,190,26)) return UI_OPEN_SECURITY;
+        if(inside(x,y,210,147,98,26)) return UI_OPEN_WIFI_SLOT;
+        if(inside(x,y,12,180,296,31)) return UI_WIFI_CONNECT;
     }
     return UI_NONE;
 }

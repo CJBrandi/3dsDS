@@ -16,6 +16,7 @@
 #include "safety.h"
 #include "link.h"
 #include "ui.h"
+#include "wifi.h"
 
 #define CONFIG_DIR "sdmc:/3ds/3dsDS"
 #define CONFIG_PATH CONFIG_DIR "/config.txt"
@@ -39,6 +40,7 @@ static void lifecycle(APT_HookType hook, void *unused) {
     (void)unused;
     /* libctru invokes these hooks synchronously before entering HOME/sleep. */
     safety_disable(&safety);
+    if(wifi_setup.busy) wifi_setup_cancel();
     if(hook==APTHOOK_ONSUSPEND || hook==APTHOOK_ONSLEEP || hook==APTHOOK_ONEXIT) {
         Controls empty={{0},0,-1};
         transmit(&empty,now_ms(),true);
@@ -147,6 +149,7 @@ static void edit_team(void) {
     if(swkbdInputText(&kb,text,sizeof text)==SWKBD_BUTTON_RIGHT) {
         char *end; unsigned long team=strtoul(text,&end,10);
         if(text[0] && !*end && team>=1 && team<=25599 && set_team((unsigned)team)) {
+            if(!wifi_setup.ssid[0]) wifi_suggest(team_number,false,wifi_setup.ssid);
             snprintf(message,sizeof message,"Team %u saved. Robot disabled.",team_number); save_config();
         } else snprintf(message,sizeof message,"Invalid team number. No changes.");
     }
@@ -154,8 +157,38 @@ static void edit_team(void) {
     hidScanInput(); /* Discard keyboard dismiss button edges. */
     safety_disable(&safety);
 }
+static void edit_wifi_text(bool password) {
+    if(wifi_setup.busy) return;
+    safety_disable(&safety);
+    Controls empty={{0},0,-1}; transmit(&empty,now_ms(),true);
+    SwkbdState kb;
+    swkbdInit(&kb,SWKBD_TYPE_NORMAL,2,password ? 64:32);
+    swkbdSetFeatures(&kb,0); /* No predictive learning of a network password. */
+    swkbdSetHintText(&kb,password ? "Wi-Fi password":"Network name (SSID)");
+    if(password) swkbdSetPasswordMode(&kb,SWKBD_PASSWORD_HIDE);
+    else if(wifi_setup.ssid[0]) swkbdSetInitialText(&kb,wifi_setup.ssid);
+    char value[129]={0};
+    if(swkbdInputText(&kb,value,sizeof value)==SWKBD_BUTTON_RIGHT) {
+        size_t n=strlen(value);
+        if(n>(password ? 64u:32u))
+            snprintf(wifi_setup.status,sizeof wifi_setup.status,"Entry is too long in UTF-8 bytes.");
+        else {
+            if(password) {
+                wifi_wipe(wifi_setup.password,sizeof wifi_setup.password);
+                memcpy(wifi_setup.password,value,n+1);
+            } else {
+                memcpy(wifi_setup.ssid,value,n+1);
+                wifi_wipe(wifi_setup.password,sizeof wifi_setup.password);
+            }
+            wifi_setup.password_saved=false;
+        }
+    }
+    wifi_wipe(value,sizeof value);
+    memset(&link_state,0,sizeof link_state); hidScanInput();
+}
 static void draw(const Controls *c, uint64_t now, uint32_t wifi) {
     bool connected=link_connected(&link_state,now);
+    char suggested[33]; wifi_suggest(team_number,false,suggested);
     UiModel model={
         .connected=connected, .wifi=wifi!=0, .code=link_state.robot.code,
         .enabled=safety.enabled, .rio_enabled=link_state.robot.enabled,
@@ -163,7 +196,11 @@ static void draw(const Controls *c, uint64_t now, uint32_t wifi) {
         .configured=configured, .neutral=neutral(c),
         .voltage=link_state.robot.voltage,
         .age_ms=connected ? (unsigned)(now-link_state.last_rx) : 0,
-        .mode=mode, .alliance=alliance, .team=team_number, .controls=*c, .target=target, .message=message
+        .mode=mode, .alliance=alliance, .team=team_number, .controls=*c, .target=target, .message=message,
+        .wifi_ssid=wifi_setup.ssid, .wifi_suggestion=suggested,
+        .wifi_slot_ssid=wifi_setup.profiles[wifi_setup.slot], .wifi_status=wifi_setup.status,
+        .wifi_busy=wifi_setup.busy, .wifi_password_set=wifi_setup.password_saved || wifi_setup.password[0],
+        .wifi_security=wifi_setup.security, .wifi_slot=wifi_setup.slot, .wifi_available=wifi_setup.available
     };
     ui_draw(&model,page,popup);
 }
@@ -192,11 +229,13 @@ int main(int argc, char **argv) {
         while (aptMainLoop()) { hidScanInput(); if (hidKeysDown() & KEY_START) break; gspWaitForVBlank(); }
     } else {
         load_config();
+        wifi_setup_init();
+        wifi_suggest(team_number,false,wifi_setup.ssid);
         aptHookCookie hook; aptHook(&hook, lifecycle, NULL);
         uint64_t next_send = 0, next_draw = 0, next_wifi = 0, previous = now_ms();
         uint32_t wifi = 0;
-        bool quit = false, touch_ready=false;
-        while (!quit && aptMainLoop()) {
+        bool touch_ready=false;
+        while (aptMainLoop()) {
             uint64_t now = now_ms();
             if (__atomic_exchange_n(&lifecycle_event, 0, __ATOMIC_ACQ_REL) || now - previous > 100) {
                 safety_disable(&safety); memset(&link_state, 0, sizeof link_state);
@@ -215,6 +254,7 @@ int main(int argc, char **argv) {
                 if (R_FAILED(ACU_GetWifiStatus(&wifi))) wifi = 0;
                 next_wifi = now + 200;
             }
+            wifi_setup_poll(now);
             receive_status(now);
             bool touch_stop=false, touch_enable=false;
             if(!(held & KEY_TOUCH)) touch_ready=true;
@@ -222,11 +262,32 @@ int main(int argc, char **argv) {
                 touch_ready=false;
                 touchPosition pos; hidTouchRead(&pos);
                 UiAction action=ui_touch(page,popup,pos.px,pos.py,safety.enabled);
-                if (action>=UI_TAB_DRIVE && action<=UI_TAB_INPUTS) page=action-UI_TAB_DRIVE;
+                if (action>=UI_TAB_DRIVE && action<=UI_TAB_WIFI) page=action-UI_TAB_DRIVE;
                 else if (action==UI_DISABLE) {
                     safety_disable(&safety);
                     touch_stop=true;
                 } else if (action==UI_ENABLE) touch_enable=true;
+                else if (action==UI_OPEN_SECURITY && !wifi_setup.busy) popup=POPUP_SECURITY;
+                else if (action==UI_OPEN_WIFI_SLOT && !wifi_setup.busy) popup=POPUP_WIFI_SLOT;
+                else if (action>=UI_SECURITY_WPA2 && action<=UI_SECURITY_OPEN) {
+                    wifi_setup.security=action-UI_SECURITY_WPA2; wifi_setup.password_saved=false; popup=POPUP_NONE;
+                    wifi_wipe(wifi_setup.password,sizeof wifi_setup.password);
+                } else if(action>=UI_SLOT1 && action<=UI_SLOT3) {
+                    wifi_setup.slot=action-UI_SLOT1; wifi_setup.password_saved=false; popup=POPUP_NONE;
+                } else if(action==UI_WIFI_SSID && !wifi_setup.busy) edit_wifi_text(false);
+                else if(action==UI_WIFI_PASSWORD && !wifi_setup.busy && wifi_setup.security!=WIFI_OPEN) edit_wifi_text(true);
+                else if(action==UI_WIFI_SUGGEST && !wifi_setup.busy) {
+                    wifi_suggest(team_number,false,wifi_setup.ssid); wifi_setup.password_saved=false;
+                    wifi_wipe(wifi_setup.password,sizeof wifi_setup.password);
+                } else if(action==UI_WIFI_CONNECT) {
+                    if(wifi_setup.busy) wifi_setup_cancel();
+                    else {
+                        safety_disable(&safety);
+                        Controls empty={{0},0,-1}; transmit(&empty,now_ms(),true);
+                        memset(&link_state,0,sizeof link_state);
+                        wifi_setup_connect(now_ms());
+                    }
+                }
                 else if (action==UI_OPEN_MODE) popup=POPUP_MODE;
                 else if (action==UI_OPEN_ALLIANCE) popup=POPUP_ALLIANCE;
                 else if (action==UI_CLOSE_POPUP) popup=POPUP_NONE;
@@ -235,10 +296,9 @@ int main(int argc, char **argv) {
                 } else if (action>=UI_RED1 && action<=UI_BLUE3) {
                     alliance=action-UI_RED1; popup=POPUP_NONE; safety_disable(&safety); if(configured) save_config();
                 } else if (action==UI_TEAM) edit_team();
-                else if (action==UI_QUIT) quit=true;
             }
             SafetyInput input={
-                .connected=configured && wifi && link_connected(&link_state,now),
+                .connected=configured && wifi && !wifi_setup.busy && link_connected(&link_state,now),
                 .code=link_state.robot.code, .robot_estop=link_state.robot.estop,
                 .enable_pressed=touch_enable, .disable_pressed=touch_stop, .neutral=neutral(&controls)
             };
@@ -247,8 +307,8 @@ int main(int argc, char **argv) {
                 snprintf(message,sizeof message,"Enable blocked: check link, code and neutral controls.");
             if(touch_enable && safety.enabled) snprintf(message,sizeof message,"Robot enable requested.");
             if(touch_stop) snprintf(message,sizeof message,"Robot disabled from touch screen.");
-            if (quit || touch_stop || touch_enable || now >= next_send) {
-                transmit(&controls, now_ms(), quit); next_send = now_ms() + DS_PERIOD_MS;
+            if (touch_stop || touch_enable || now >= next_send) {
+                transmit(&controls, now_ms(), false); next_send = now_ms() + DS_PERIOD_MS;
             }
             if (now >= next_draw) { draw(&controls, now_ms(), wifi); next_draw = now_ms() + 33; }
             svcSleepThread(2000000); /* ~2ms input/network poll; no blocking DNS. */
@@ -259,7 +319,7 @@ int main(int argc, char **argv) {
         aptUnhook(&hook);
     }
     if (sock >= 0) close(sock);
-    if (ac_ready) acExit();
+    if (ac_ready) { wifi_setup_exit(); acExit(); }
     if (soc_ready) socExit();
     free(buffer); display_exit(); gfxExit();
     return 0;
