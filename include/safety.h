@@ -6,6 +6,8 @@ typedef struct {
     bool connected, code, robot_estop, enable_pressed, disable_pressed, neutral;
 } SafetyInput;
 void safety_disable(Safety *s);
+/* Observe every accepted reply before another reply can replace its faults. */
+void safety_observe_robot(Safety *s, const RobotStatus *robot);
 /* Enable/disable inputs are touch-down edges, never held button states. */
 void safety_step(Safety *s, const SafetyInput *i);
 #endif

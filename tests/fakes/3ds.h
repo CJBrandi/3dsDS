@@ -37,6 +37,13 @@ Result ACU_CreateDefaultConfig(acuConfig *c);
 Result ACU_SetNetworkArea(acuConfig *c,unsigned area);
 Result ACU_SetAllowApType(acuConfig *c,unsigned mask);
 Result ACU_ConnectAsync(const acuConfig *c,Handle event);
+#ifdef TEST_NATIVE_MAIN
+Result ACU_GetWifiStatus(uint32_t *out);
+#else
 Result ACU_GetWifiStatus(u32 *out);
+#endif
 Result ACU_GetSSID(char *out);
+#ifdef TEST_NATIVE_MAIN
+#include "native_main.h"
+#endif
 #endif

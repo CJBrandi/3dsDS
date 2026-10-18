@@ -13,6 +13,14 @@ static void text(float x, float y, float size, uint32_t color, const char *s) {
     paint_text(x, y, size, color, s);
 }
 static void box(float x, float y, float w, float h, uint32_t color) { paint_box(x,y,w,h,color); }
+static void ssid_label(char out[33],const char *ssid) {
+    unsigned i=0;
+    for(;i<32 && ssid && ssid[i];i++) {
+        unsigned char c=(unsigned char)ssid[i];
+        out[i]=c>=32 && c<=126 ? (char)c:'?';
+    }
+    out[i]=0;
+}
 static void button(int x, int y, int w, int h, const char *label, bool selected, bool locked) {
     box(x,y,w,h,selected && !locked ? 0x174d48 : PANEL);
     box(x,y+h-2,w,2,selected && !locked ? TEAL : LINE);
@@ -86,11 +94,13 @@ void ui_draw(const UiModel *m, UiPage page, UiPopup popup) {
             snprintf(s,sizeof s,"%u",m->team);
             text(20,126,16,WHITE,s);
         }
-        bool ready=!m->wifi_busy && m->configured && m->connected && m->code && !m->estop && m->neutral;
+        bool ready=m->wifi && !m->wifi_busy && m->configured && m->connected && m->code && !m->estop && m->neutral;
         box(12,166,296,43,ready ? 0x17664f : PANEL);
         paint_text_centered(160,187.5f,25,ready ? WHITE : MUTED,"ENABLE");
         const char *reason=m->estop ? "Reset robot E-stop and restart app" :
             !m->configured ? "Set your team number on Drive" :
+            m->wifi_busy ? "Wait for Wi-Fi operation to finish" :
+            !m->wifi ? "Connect to Wi-Fi first" :
             !m->connected ? "Waiting for robot connection" :
             !m->code ? "Waiting for robot code" :
             !m->neutral ? "Center sticks and release robot buttons" : "Tap ENABLE when ready";
@@ -104,14 +114,18 @@ void ui_draw(const UiModel *m, UiPage page, UiPopup popup) {
             }
         }
     } else if(page==PAGE_WIFI) {
+        /* SSIDs are arbitrary bytes, not guaranteed UTF-8 for Citro2D. Keep
+         * their original bytes for joining and sanitize only display labels. */
+        char selected_ssid[33],suggestion[33];
+        ssid_label(selected_ssid,m->wifi_ssid); ssid_label(suggestion,m->wifi_suggestion);
         bool found=m->wifi_suggestion && m->wifi_suggestion[0];
         text(12,44,9,found ? TEAL:MUTED,found ? "Join Recommended Network:":"No team network found in scan");
         if(found) {
-            text(12,60,13,WHITE,m->wifi_suggestion);
+            text(12,60,13,WHITE,suggestion);
             box(240,43,68,37,0x17664f);
             paint_text_centered(274,61.5f,16,WHITE,"Join");
         }
-        snprintf(s,sizeof s,"%.23s%s",m->wifi_ssid && m->wifi_ssid[0] ? m->wifi_ssid:"Select network  v",m->wifi_ssid && m->wifi_ssid[0] && strlen(m->wifi_ssid)>23 ? "...":"");
+        snprintf(s,sizeof s,"%.23s%s",selected_ssid[0] ? selected_ssid:"Select network  v",strlen(selected_ssid)>23 ? "...":"");
         button(12,89,240,32,s,false,m->wifi_busy);
         button(260,89,48,32,m->wifi_scanning ? "...":"Scan",false,m->wifi_busy);
         button(12,129,240,32,"",false,m->wifi_busy);
@@ -125,7 +139,7 @@ void ui_draw(const UiModel *m, UiPage page, UiPopup popup) {
         snprintf(s,sizeof s,"Detected security: %s",m->wifi_ssid && m->wifi_ssid[0] ? wifi_security_name(m->wifi_security):"select a network");
         text(12,171,10,MUTED,s);
         box(12,194,296,31,m->wifi_busy ? 0x572b36:0x17664f);
-        paint_text_centered(160,209.5f,16,WHITE,m->wifi_busy ? "Cancel connection":"Join selected network");
+        paint_text_centered(160,209.5f,16,WHITE,m->wifi_scanning ? "Cancel scan":m->wifi_busy ? "Cancel connection":"Join selected network");
         snprintf(s,sizeof s,"%.58s",m->wifi_status ? m->wifi_status:"");
         text(12,230,8,m->wifi_available ? MUTED:RED,s);
         if(popup==POPUP_NETWORKS) {
@@ -135,9 +149,10 @@ void ui_draw(const UiModel *m, UiPage page, UiPopup popup) {
                 unsigned index=m->network_page*5+i;
                 if(index>=m->network_count) break;
                 const WifiNetwork *n=&m->networks[index];
+                char label[33]; ssid_label(label,n->ssid);
                 box(12,64+i*27,296,25,PANEL);
                 box(12,87+i*27,296,2,LINE);
-                snprintf(s,sizeof s,"%.24s%s",n->ssid,strlen(n->ssid)>24 ? "...":"");
+                snprintf(s,sizeof s,"%.24s%s",label,strlen(label)>24 ? "...":"");
                 text(22,66+i*27,11,wifi_security_supported(n->security) ? WHITE:MUTED,s);
                 text(22,80+i*27,7,MUTED,wifi_security_name(n->security));
             }

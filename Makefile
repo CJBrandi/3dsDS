@@ -26,6 +26,8 @@ dist/3dsDS.smdh: assets/icon.png | dist
 dist/3dsDS.3dsx: dist/3dsDS.elf dist/3dsDS.smdh
 	$(TOOLS)/3dsxtool $< $@ --smdh=dist/3dsDS.smdh
 test: | build
+	$(CC) -std=c11 -Wall -Wextra -Werror -pedantic -fsanitize=address,undefined -ffunction-sections -fdata-sections -Itests/fakes -Iinclude source/protocol.c source/safety.c source/link.c source/feed.c tests/test_transport.c -Wl,--gc-sections -o build/test_transport
+	./build/test_transport
 	$(CC) -std=c11 -Wall -Wextra -Werror -pedantic -fsanitize=address,undefined -Iinclude source/feed.c tests/test_feed.c -o build/test_feed
 	./build/test_feed
 	$(CC) -std=c11 -Wall -Wextra -Werror -pedantic -fsanitize=address,undefined -Itests/fakes -Iinclude source/wifi_scan.c source/wifi_scan_parse.c tests/test_wifi_scan_service.c -o build/test_wifi_scan_service

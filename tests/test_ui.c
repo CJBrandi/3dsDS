@@ -1,12 +1,18 @@
 #include <assert.h>
 #include <stdio.h>
+#include <string.h>
 #include "ui.h"
+static char drive_reason[80];
 void paint_begin(int s) {(void)s;}
 void paint_end(void) {}
 void paint_feed_line(float x,float y,float w,float size,uint32_t c,const char *s) {(void)x;(void)y;(void)w;(void)size;(void)c;(void)s;}
 void paint_text_centered(float x,float y,float size,uint32_t c,const char *s) {(void)x;(void)y;(void)size;(void)c;(void)s;}
 void paint_box(float x,float y,float w,float h,uint32_t c) {(void)x;(void)y;(void)w;(void)h;(void)c;}
-void paint_text(float x,float y,float size,uint32_t c,const char *s) {(void)x;(void)y;(void)size;(void)c;(void)s;}
+void paint_text(float x,float y,float size,uint32_t c,const char *s) {
+    (void)x;(void)size;(void)c;
+    if(y==219) snprintf(drive_reason,sizeof drive_reason,"%s",s);
+    for(const unsigned char *p=(const unsigned char *)s;*p;p++) assert(*p>=32 && *p<=126);
+}
 int main(void) {
     /* Every valid pixel stops, on every page, even with an old popup open. */
     for(int page=0;page<4;page++) for(int popup=0;popup<3;popup++)
@@ -36,5 +42,15 @@ int main(void) {
     assert(ui_touch(PAGE_WIFI,POPUP_NETWORKS,50,100,false)==UI_NETWORK1);
     assert(ui_touch(PAGE_WIFI,POPUP_NETWORKS,250,220,false)==UI_NETWORK_NEXT);
     assert(ui_touch(PAGE_WIFI,POPUP_NETWORKS,160,220,false)==UI_CLOSE_POPUP);
+    UiModel model={.configured=true,.connected=true,.code=true,.neutral=true,.target="10.12.34.2",.message=""};
+    ui_draw(&model,PAGE_DRIVE,POPUP_NONE);
+    assert(!strcmp(drive_reason,"Connect to Wi-Fi first"));
+    model.wifi=true;model.wifi_busy=true;
+    ui_draw(&model,PAGE_DRIVE,POPUP_NONE);
+    assert(!strcmp(drive_reason,"Wait for Wi-Fi operation to finish"));
+    WifiNetwork network={.ssid="FRC-\xff",.security=WIFI_OPEN};
+    model.wifi_ssid=model.wifi_suggestion=network.ssid;
+    model.networks=&network;model.network_count=1;
+    ui_draw(&model,PAGE_WIFI,POPUP_NETWORKS); /* Raw non-UTF-8 SSIDs never reach the font parser. */
     puts("PASS: full-screen stop target, dropdown isolation, merged numeric team field and scanned network picker");
 }

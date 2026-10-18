@@ -7,6 +7,10 @@ Changes:
 - Text wraps and automatically scrolls to the latest messages. No editing or extra controls.
 - Added an independent, nonblocking console connection with automatic reconnect.
 - Navigation now has Drive, Inputs, Wi-Fi, and Feed. Enabled operation still shows only full-screen Disable.
+- Fixed safety faults being hidden by queued recovery replies, code-initialization readiness, delayed-acknowledgment freshness, and enabled sends after work stalls within a frame.
+- Corrected negative joystick travel to reach −1.0 in WPILib; reject oversized/truncated UDP status packets.
+- Fixed Wi-Fi saved-security persistence, edited-password reuse, service-error handling and cancellation during a network switch.
+- Added scan timeout reporting, stricter infrastructure/security parsing, safe SSID display labels and accurate Enable guidance during Wi-Fi operations.
 
 Wi-Fi still detects security automatically, recommends only team networks found in a fresh scan, and remembers one last-used connection. The password field supports the native keyboard and Show/Hide.
 

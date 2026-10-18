@@ -10,7 +10,7 @@ static size_t frame(unsigned akm,bool transition) {
     put32(36,28);
     size_t at=40;
     data[at]=0x80;data[at+16]=2;at+=24;
-    data[at+10]=akm ? 0x10:0;at+=12;
+    data[at+10]=akm ? 0x11:1;at+=12;
     data[at++]=0;data[at++]=8;memcpy(data+at,"FRC-1234",8);at+=8;
     if(akm) {
         unsigned char rsn[]={1,0,0,15,172,4,1,0,0,15,172,4,1,0,0,15,172,2,0,0};
@@ -32,6 +32,14 @@ int main(void) {
     size=frame(2,true);assert(wifi_parse_beacons(data,size,n,4,&count) && n[0].security==WIFI_WPA2);
     data[size-2]=0x40;assert(wifi_parse_beacons(data,size,n,4,&count) && n[0].security==WIFI_UNSUPPORTED);
     size=frame(2,false);data[size-8]=255;assert(wifi_parse_beacons(data,size,n,4,&count) && n[0].security==WIFI_UNSUPPORTED);
+    size=frame(0,false);data[74]=2;
+    assert(wifi_parse_beacons(data,size,n,4,&count) && count==0); /* Ad-hoc is not infrastructure. */
+    size=frame(2,false);data[74]=1;
+    assert(wifi_parse_beacons(data,size,n,4,&count) && n[0].security==WIFI_UNSUPPORTED);
+    size=frame(2,false);
+    data[87]+=2;data[size++]=1;data[size++]=0; /* PMKID count without its 16-byte entry. */
+    put32(12,size-12);put32(32,size-12);put32(4,size);put32(0,size);
+    assert(wifi_parse_beacons(data,size,n,4,&count) && n[0].security==WIFI_UNSUPPORTED);
     size=frame(0,false);data[77]=33;assert(wifi_parse_beacons(data,size,n,4,&count) && count==0);
     size=frame(2,false);put32(12,0xffffffff);assert(!wifi_parse_beacons(data,size,n,4,&count));
     for(size_t i=0;i<size;i++) {frame(2,false);assert(!wifi_parse_beacons(data,i,n,4,&count));}

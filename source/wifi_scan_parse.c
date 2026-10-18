@@ -34,6 +34,15 @@ static WifiSecurity rsn_security(const uint8_t *p,size_t n) {
     }
     if(n-at==1) return WIFI_UNSUPPORTED;
     bool pmf_required=n-at>=2 && (le16(p+at)&0x40);
+    if(n-at>=2) at+=2; /* RSN capabilities. */
+    if(n-at) {
+        if(n-at<2) return WIFI_UNSUPPORTED;
+        unsigned pmkids=le16(p+at); at+=2;
+        if(pmkids>(n-at)/16) return WIFI_UNSUPPORTED;
+        at+=pmkids*16;
+    }
+    /* Only the optional four-byte group management cipher may remain. */
+    if(n-at && n-at!=4) return WIFI_UNSUPPORTED;
     if(aes && psk && !pmf_required) return WIFI_WPA2;
     if(sae && !psk) return WIFI_WPA3;
     if(enterprise && !psk) return WIFI_ENTERPRISE;
@@ -42,7 +51,9 @@ static WifiSecurity rsn_security(const uint8_t *p,size_t n) {
 static bool beacon(const uint8_t *p,size_t n,const uint8_t *mac,WifiNetwork *out) {
     if(n<36 || (p[0]!=0x80 && p[0]!=0x50) || memcmp(p+16,mac,6)) return false;
     size_t start=24;
-    bool privacy=(le16(p+start+10)&0x10)!=0;
+    unsigned capabilities=le16(p+start+10);
+    if(!(capabilities&1) || (capabilities&2)) return false; /* Infrastructure only. */
+    bool privacy=(capabilities&0x10)!=0;
     size_t at=start+12;
     bool ssid=false,rsn=false,wpa=false;
     out->security=privacy ? WIFI_UNSUPPORTED:WIFI_OPEN;
@@ -61,6 +72,7 @@ static bool beacon(const uint8_t *p,size_t n,const uint8_t *mac,WifiNetwork *out
         at+=len;
     }
     if(wpa && !rsn) out->security=WIFI_UNSUPPORTED;
+    if(rsn && !privacy) out->security=WIFI_UNSUPPORTED;
     return ssid;
 }
 bool wifi_parse_beacons(const uint8_t *p,size_t n,WifiNetwork *out,size_t cap,size_t *count) {

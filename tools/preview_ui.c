@@ -54,6 +54,13 @@ int main(int argc,char **argv) {
         if(!strcmp(argv[3],"networks")) popup=POPUP_NETWORKS;
         if(!strcmp(argv[3],"show")) m.wifi_show_password=true;
         if(!strcmp(argv[3],"missing")) { m.wifi_suggestion=NULL; m.wifi_ssid=""; m.wifi_password_set=false; }
+        if(!strcmp(argv[3],"wifi-off")) m.wifi=false;
+        if(!strcmp(argv[3],"busy")) m.wifi_busy=true;
+        if(!strcmp(argv[3],"scan-timeout")) {
+            m.wifi_busy=m.wifi_scanning=true;
+            m.wifi_status="Wi-Fi scan timed out; waiting for system.";
+            m.wifi_suggestion=NULL;
+        }
     }
     if(page==PAGE_INPUTS) { m.controls=(Controls){{25,-40,0,0},5,45}; m.neutral=false; }
     ui_draw(&m,page,popup);

@@ -11,6 +11,7 @@ WifiSetup wifi_setup;
 static Handle event;
 static enum { PHASE_IDLE, PHASE_CLOSE, PHASE_CONNECT } phase;
 static uint64_t deadline;
+static bool cancel_after_close;
 static Result command_scalar(unsigned id,uint32_t value) {
     u32 *c=getThreadCommandBuffer(); c[0]=IPC_MakeHeader(id,1,0); c[1]=value;
     Result r=svcSendSyncRequest(*acGetSessionHandle());
@@ -53,10 +54,23 @@ void wifi_setup_refresh_profiles(void) {
 }
 void wifi_setup_init(void) {
     memset(&wifi_setup,0,sizeof wifi_setup); wifi_setup.slot=2;
+    wifi_setup.security=wifi_setup.saved_security=WIFI_UNSUPPORTED;
     wifi_setup_refresh_profiles();
     for(unsigned i=0;i<3;i++) if(!wifi_setup.profiles[i][0]) { wifi_setup.slot=i; break; }
     snprintf(wifi_setup.status,sizeof wifi_setup.status,wifi_setup.available ?
         "Scan and select a network to join.":"Wi-Fi setup requires ac:i access (CIA build).");
+}
+bool wifi_setup_select(const char *ssid,WifiSecurity security) {
+    if(wifi_setup.busy || !ssid || !ssid[0] || strlen(ssid)>32 ||
+       (security!=WIFI_OPEN && security!=WIFI_WPA2) || wifi_setup.slot>=3) return false;
+    bool same=!strcmp(wifi_setup.ssid,ssid) && wifi_setup.security==security;
+    if(!same) {
+        wifi_wipe(wifi_setup.password,sizeof wifi_setup.password);
+        wifi_setup.password_saved=!strcmp(wifi_setup.profiles[wifi_setup.slot],ssid) &&
+            wifi_setup.saved_security==security;
+    }
+    memmove(wifi_setup.ssid,ssid,strlen(ssid)+1); wifi_setup.security=security;
+    return true;
 }
 static int hex(char c) { return c<='9' ? c-'0':(c|32)-'a'+10; }
 static bool derive_key(unsigned char key[32]) {
@@ -103,6 +117,7 @@ static Result save_profile(void) {
     if(R_FAILED(r)) { ACI_LoadNetworkSetting(wifi_setup.slot); return r; }
     memmove(wifi_setup.profiles[wifi_setup.slot],wifi_setup.ssid,33);
     wifi_setup.password_saved=true;
+    wifi_setup.saved_security=wifi_setup.security;
     return 0;
 }
 static Result start_connect(uint64_t now) {
@@ -115,20 +130,27 @@ static Result start_connect(uint64_t now) {
     return r;
 }
 bool wifi_setup_connect(uint64_t now) {
-    if(wifi_setup.busy || !wifi_setup.available) return false;
+    if(wifi_setup.busy || !wifi_setup.available || wifi_setup.slot>=3) return false;
+    if(wifi_setup.security!=WIFI_OPEN && wifi_setup.security!=WIFI_WPA2) {
+        snprintf(wifi_setup.status,sizeof wifi_setup.status,"Scan and select a supported network first."); return false;
+    }
     if(!wifi_setup.ssid[0] || strlen(wifi_setup.ssid)>32) {
         snprintf(wifi_setup.status,sizeof wifi_setup.status,"Enter a network name (1-32 bytes)."); return false;
     }
-    bool reuse=wifi_setup.password_saved && !strcmp(wifi_setup.profiles[wifi_setup.slot],wifi_setup.ssid);
+    bool reuse=wifi_setup.password_saved && wifi_setup.saved_security==wifi_setup.security &&
+        !strcmp(wifi_setup.profiles[wifi_setup.slot],wifi_setup.ssid);
     if(!reuse && !wifi_credentials_valid(wifi_setup.ssid,wifi_setup.password,wifi_setup.security)) {
         snprintf(wifi_setup.status,sizeof wifi_setup.status,"WPA2 needs 8-63 characters or 64 hex digits."); return false;
     }
-    Result r=reuse ? 0:save_profile();
+    u32 connected=0;
+    Result r=ACU_GetWifiStatus(&connected);
+    if(R_FAILED(r)) { finish("Could not read Wi-Fi status",r); return false; }
+    r=reuse ? 0:save_profile();
     if(R_FAILED(r)) { finish("Could not save Wi-Fi profile",r); return false; }
     r=svcCreateEvent(&event,RESET_ONESHOT);
     if(R_FAILED(r)) { finish("Could not start connection",r); return false; }
     wifi_setup.busy=true;
-    u32 connected=0; ACU_GetWifiStatus(&connected);
+    cancel_after_close=false;
     if(connected) {
         r=command_process(0x08,true);
         if(R_SUCCEEDED(r)) {
@@ -141,21 +163,37 @@ bool wifi_setup_connect(uint64_t now) {
 }
 void wifi_setup_poll(uint64_t now) {
     if(!wifi_setup.busy) return;
-    if(now>=deadline) { wifi_setup_cancel(); snprintf(wifi_setup.status,sizeof wifi_setup.status,"Connection timed out. Check Wi-Fi and password."); return; }
+    if(now>=deadline) {
+        if(phase==PHASE_CONNECT) command_process(0x07,false);
+        finish("Connection timed out. Check Wi-Fi and password.",-1); return;
+    }
     if(R_FAILED(svcWaitSynchronization(event,0))) return;
     Result r=command_process(phase==PHASE_CLOSE ? 0x09:0x05,false);
     if(phase==PHASE_CLOSE) {
+        if(cancel_after_close) { finish("Connection cancelled.",r); return; }
         if(R_SUCCEEDED(r)) r=start_connect(now);
         if(R_FAILED(r)) finish("Could not switch Wi-Fi",r);
         return;
     }
     char ssid[33]={0}; u32 connected=0;
-    ACU_GetWifiStatus(&connected); ACU_GetSSID(ssid); ssid[32]=0;
-    if(connected && !strcmp(ssid,wifi_setup.ssid)) finish("Wi-Fi connected. Waiting for robot.",0);
+    if(R_SUCCEEDED(r)) r=ACU_GetWifiStatus(&connected);
+    if(R_SUCCEEDED(r)) r=ACU_GetSSID(ssid);
+    ssid[32]=0;
+    if(R_SUCCEEDED(r) && connected && !strcmp(ssid,wifi_setup.ssid)) finish("Wi-Fi connected. Waiting for robot.",0);
     else finish("Connection failed; check network/password",R_FAILED(r) ? r:-1);
 }
 void wifi_setup_cancel(void) {
+    /* CloseAsync has no cancel command. Drain its result before another join. */
+    if(phase==PHASE_CLOSE) {
+        cancel_after_close=true;
+        snprintf(wifi_setup.status,sizeof wifi_setup.status,"Cancelling connection; waiting for Wi-Fi close...");
+        return;
+    }
     if(phase==PHASE_CONNECT) command_process(0x07,false);
     finish("Connection cancelled.",0);
 }
-void wifi_setup_exit(void) { wifi_setup_cancel(); wifi_wipe(wifi_setup.password,sizeof wifi_setup.password); }
+void wifi_setup_exit(void) {
+    wifi_setup_cancel();
+    if(phase==PHASE_CLOSE) finish("Connection cancelled.",0);
+    wifi_wipe(wifi_setup.password,sizeof wifi_setup.password);
+}

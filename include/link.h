@@ -6,7 +6,7 @@ typedef struct {
     uint64_t sent[32];
     bool valid[32], have_reply;
     uint16_t last_reply;
-    uint64_t last_rx;
+    uint64_t last_rx, last_ack_sent;
     RobotStatus robot;
 } Link;
 void link_sent(Link *l, uint16_t sequence, uint64_t now);

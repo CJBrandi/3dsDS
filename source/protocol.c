@@ -41,7 +41,8 @@ bool ds_status(const uint8_t *p, size_t n, RobotStatus *out) {
     }
     RobotStatus s = {0};
     s.sequence = get16(p);
-    s.code = (p[4] & 0x20) != 0; /* Trace, not the control/status byte. */
+    /* A loaded program is not ready while NetComm reports initialization. */
+    s.code = (p[4] & 0x20) != 0 && !(p[3] & 0x08);
     s.enabled = (p[3] & 4) != 0;
     s.estop = (p[3] & 0x80) != 0;
     s.brownout = (p[3] & 0x10) != 0;
@@ -57,7 +58,8 @@ int8_t ds_axis(int raw, int scale, int dead) {
     if (raw < -scale) raw = -scale;
     if (raw >= -dead && raw <= dead) return 0;
     int magnitude = raw < 0 ? -raw : raw;
-    int result = (magnitude - dead) * 127 / (scale - dead);
+    /* WPILib divides negative wire values by 128 and positive values by 127. */
+    int result = (int)((int64_t)(magnitude - dead) * (raw<0 ? 128:127) / (scale - dead));
     return (int8_t)(raw < 0 ? -result : result);
 }
 int16_t ds_pov(bool u, bool r, bool d, bool l) {

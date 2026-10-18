@@ -7,7 +7,10 @@
 - Standalone UDP control to port 1110, reply socket bound to 1150, nominal 20 ms sends.
 - Version 1, wrapping 16-bit sequence, Teleop-only control, enable/E-stop, alliance, one joystick, UTC date/timezone handshake tags.
 - Robot-code bit from trace byte 4 (`0x20`); battery from bytes 5–6 with a `/256` fraction. These correct the attached Python implementation's telemetry parsing.
+- Code readiness also requires the status byte's initializing flag (`0x08`) to be clear. Every accepted reply is checked for code loss/E-stop before another reply can overwrite it; faults discard pending acknowledgments and recovery requires a new disabled exchange.
 - Replies must come from the configured robot IPv4 address, have a valid header/tag layout, echo a recently sent sequence, and advance the response sequence. Duplicates, old replies, and malformed packets cannot refresh link health. This is freshness checking, not cryptographic authentication.
+- Readiness expires 250 ms after the send acknowledged by the latest reply, so a delayed response cannot grant another full watchdog interval. Oversized UDP status datagrams (over 2048 bytes) are rejected instead of accepting a truncated prefix. The loop rechecks elapsed time after service/UI work, and sending rechecks reply freshness before allowing an enabled packet.
+- Axes use the full signed wire range, −128 to +127, matching WPILib 2026's different negative/positive normalization divisors. Buttons remain a big-endian 10-bit mask and POV values remain big-endian signed 16-bit values.
 - Date tags are resent while disconnected or requested by the robot. The calendar uses the console's clock as UTC; set that clock correctly if robot timestamps matter.
 - Feed is a read-only, automatically scrolling console for robot prints, warnings, errors, locations, and call stacks. It connects to the configured robot's dedicated TCP 1741 console port, as used by WPILib's console viewer. Nonblocking connect/read, a two-second connection timeout, three-second retry interval, and a four-KiB read budget per loop keep console traffic bounded. It runs independently of the UDP enable/freshness path; console traffic cannot establish robot readiness.
 - Console framing accepts split/coalesced messages and zero-length keepalives, validates error string lengths, and resets partial frames on reconnect/HOME/sleep/team changes. The text box keeps the latest 17 wrapped lines (46 characters each); older text falls off. Tabs become spaces, CR is ignored, and other non-printable/non-ASCII bytes become `?`. No SD logging, text editing, clear/filter controls, or outgoing console commands. Changing teams clears the text. This is console output, not NetworkTables or a dump of every UDP telemetry extension.
@@ -27,6 +30,14 @@ make preview   # host SVG layout preview
 ```
 
 `make test` requires a host C compiler and `libmbedtls-dev`, but not the 3DS SDK. Wi-Fi tests use a fake AC service and a known WPA2 PSK vector to check profile staging, save failures, reconnect, timeout, cancellation, and key/password handling. Console parser tests cover fragmented/coalesced frames, keepalives, malformed lengths, errors/warnings/call stacks, stream reset, maximum frame size, and bounded text wrapping. It also checks every lower-screen pixel on every page/popup state maps to Disable while enabled, dropdown isolation, and team-only setup. It exercises exact packet vectors, date tags, telemetry offsets, malformed/truncated replies, all POV combinations, deadzones, touch enable/disable, each disabling condition, recovery without automatic enable, E-stop latching, duplicate/outdated replies, and sequence rollover. `make release` outputs `dist/3dsDS.cia`, `THIRD_PARTY_NOTICES.txt`, and `SHA256SUMS`; `make clean` removes generated outputs.
+
+Native send/receive functions are also compiled on the host with real loopback UDP sockets and platform declarations replaced by test seams. These regress fault/recovery bursts, code initialization, delayed acknowledgments, stale sends, oversized datagrams and source filtering. They do not emulate the 3DS network stack or a real NetComm daemon.
+
+Wi-Fi selection keeps the saved profile's security separate from the currently selected network. Edited passwords take precedence over saved credentials; supported saved networks can be rejoined without reopening the password keyboard. Service failures cannot be treated as successful association. Cancellation during disconnect drains that operation before another connection can begin. Scans reject ad-hoc beacons, inconsistent privacy flags and truncated RSN tails; arbitrary SSID bytes are sanitized only for display, leaving the actual SSID intact for association/key derivation.
+
+Scans time out after ten seconds and discard late results. Cancellation/timeout cannot kill a synchronous system-service call: enable and another scan stay blocked until the worker returns. This limitation requires hardware testing. Scan freshness is measured conservatively from request start.
+
+See the [2026-10-18 bug audit](audit-2026-10-18.md) for findings, public references and unresolved validation work.
 
 ### Bench check without robot hardware
 
@@ -71,3 +82,4 @@ The user-provided `nexus.py` was treated as protocol reference material, not as 
 - [WPILib console connection and framing](https://github.com/wpilibsuite/vscode-wpilib/blob/6f10e0331d47551e68f6fb469b601eb4638323d6/vscode-wpilib/src/riolog/rioconsole.ts)
 - [WPILib console message fields](https://github.com/wpilibsuite/vscode-wpilib/blob/6f10e0331d47551e68f6fb469b601eb4638323d6/vscode-wpilib/src/riolog/shared/message.ts)
 - [WPILib joystick access](https://docs.wpilib.org/en/stable/docs/software/basic-programming/joystick.html)
+- [WPILib 2026 roboRIO HAL axis normalization](https://github.com/wpilibsuite/allwpilib/blob/v2026.2.2/hal/src/main/native/athena/FRCDriverStation.cpp)

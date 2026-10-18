@@ -13,8 +13,11 @@ bool link_receive(Link *l, const uint8_t *data, size_t n, uint64_t now) {
     if (l->have_reply && (delta == 0 || delta >= 0x8000)) return false;
     l->valid[slot] = false;
     l->have_reply = true; l->last_reply = r.sequence; l->last_rx = now; l->robot = r;
+    l->last_ack_sent = l->sent[slot];
     return true;
 }
 bool link_connected(const Link *l, uint64_t now) {
-    return l->have_reply && now >= l->last_rx && now - l->last_rx < DS_TIMEOUT_MS;
+    /* A delayed reply must not grant another full watchdog interval. */
+    return l->have_reply && now >= l->last_rx &&
+        now >= l->last_ack_sent && now - l->last_ack_sent < DS_TIMEOUT_MS;
 }

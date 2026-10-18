@@ -10,6 +10,7 @@ static Thread worker;
 static uint8_t raw[0x10000] __attribute__((aligned(0x1000)));
 static Result worker_result;
 static uint32_t discard;
+static uint64_t scan_started;
 static void scan_worker(void *arg) {
     (void)arg;
     Handle session=0,event=0;
@@ -32,8 +33,8 @@ static void scan_worker(void *arg) {
     worker_result=r;
 }
 bool wifi_scan_start(uint64_t now) {
-    (void)now;
     if(worker) return false;
+    scan_started=now;
     wifi_scan.valid=false;wifi_scan.count=0;wifi_scan.error=0;
     memset(raw,0,sizeof raw);__atomic_store_n(&discard,0,__ATOMIC_RELEASE);
     worker=threadCreate(scan_worker,NULL,0x8000,0x31,-2,false);
@@ -42,14 +43,23 @@ bool wifi_scan_start(uint64_t now) {
     return worker!=NULL;
 }
 void wifi_scan_poll(uint64_t now) {
-    if(!worker || R_FAILED(threadJoin(worker,0))) return;
+    if(!worker) return;
+    if(now>=scan_started && now-scan_started>=WIFI_SCAN_TIMEOUT_MS &&
+       !__atomic_load_n(&discard,__ATOMIC_ACQUIRE)) {
+        wifi_scan_cancel(); wifi_scan.error=(uint32_t)-3;
+    }
+    if(R_FAILED(threadJoin(worker,0))) {
+        /* A synchronous system-service call cannot safely be killed. Keep its
+         * worker owned and enable blocked, but report the timeout immediately. */
+        return;
+    }
     threadFree(worker);worker=NULL;wifi_scan.scanning=false;
     if(__atomic_load_n(&discard,__ATOMIC_ACQUIRE)) { wifi_scan.valid=false;wifi_scan.count=0;return; }
     wifi_scan.error=(uint32_t)worker_result;
     if(R_SUCCEEDED(worker_result)) {
         wifi_scan.valid=wifi_parse_beacons(raw,sizeof raw,wifi_scan.networks,WIFI_MAX_NETWORKS,&wifi_scan.count);
         if(!wifi_scan.valid) { wifi_scan.count=0;wifi_scan.error=(uint32_t)-2; }
-        else wifi_scan.scanned_at=now;
+        else wifi_scan.scanned_at=scan_started;
     }
 }
 void wifi_scan_cancel(void) {

@@ -37,6 +37,14 @@ int main(void) {
     wifi_scan.networks[0].security=WIFI_WPA3;assert(wifi_scan_recommended(1234,4)==-1);
     wifi_scan.networks[0].security=WIFI_WPA2;assert(wifi_scan_recommended(1234,30005)==-1);
     assert(wifi_scan_start(6));wifi_scan_cancel();wifi_scan_poll(7);assert(!wifi_scan.valid && !wifi_scan.count);
-    fail=true;assert(wifi_scan_start(8));wifi_scan_poll(9);assert(!wifi_scan.valid && wifi_scan.error);
+    complete=false;assert(wifi_scan_start(8));wifi_scan_poll(8+WIFI_SCAN_TIMEOUT_MS);
+    assert(wifi_scan.scanning && wifi_scan.error && !wifi_scan.valid);
+    assert(!wifi_scan_start(9+WIFI_SCAN_TIMEOUT_MS)); /* No second worker may overlap the timed-out call. */
+    complete=true;wifi_scan_poll(10+WIFI_SCAN_TIMEOUT_MS);
+    assert(!wifi_scan.scanning && !wifi_scan.valid && wifi_scan.error);
+    assert(wifi_scan_start(11+WIFI_SCAN_TIMEOUT_MS));
+    wifi_scan_poll(11+2*WIFI_SCAN_TIMEOUT_MS);
+    assert(!wifi_scan.scanning && !wifi_scan.valid && wifi_scan.error); /* First poll is already too late. */
+    fail=true;assert(wifi_scan_start(12+2*WIFI_SCAN_TIMEOUT_MS));wifi_scan_poll(13+2*WIFI_SCAN_TIMEOUT_MS);assert(!wifi_scan.valid && wifi_scan.error);
     wifi_scan_exit();puts("PASS: native scan request, single worker, fresh discovered recommendations, cancellation and errors");
 }

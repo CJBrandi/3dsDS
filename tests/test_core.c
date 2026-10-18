@@ -1,4 +1,5 @@
 #include <assert.h>
+#include <limits.h>
 #include <stdio.h>
 #include <string.h>
 #include "protocol.h"
@@ -28,6 +29,7 @@ static void status(void) {
     uint8_t p[] = {0,1,1,4,0x20,12,128,1};
     assert(ds_status(p, sizeof p, &s));
     assert(s.sequence == 1 && s.code && s.enabled && s.voltage == 12.5f && s.request_time);
+    p[3]=8; assert(ds_status(p,sizeof p,&s) && !s.code);
     p[3] = 0x20; p[4] = 0; assert(ds_status(p, sizeof p, &s)); assert(!s.code);
     p[3] = 0x90; assert(ds_status(p, sizeof p, &s)); assert(s.estop && s.brownout);
     for (size_t n = 0; n < 8; n++) assert(!ds_status(p, n, &s));
@@ -41,8 +43,9 @@ static void status(void) {
 static void axes(void) {
     assert(ds_axis(0, 156, 15) == 0 && ds_axis(15,156,15) == 0);
     assert(ds_axis(-15,156,15) == 0 && ds_axis(156,156,15) == 127);
-    assert(ds_axis(-156,156,15) == -127 && ds_axis(200,156,15) == 127);
-    assert(ds_axis(-200,156,15) == -127 && ds_axis(0,0,0) == 0);
+    assert(ds_axis(-156,156,15) == -128 && ds_axis(200,156,15) == 127);
+    assert(ds_axis(-200,156,15) == -128 && ds_axis(0,0,0) == 0);
+    assert(ds_axis(INT_MAX,INT_MAX,0)==127 && ds_axis(INT_MIN,INT_MAX,0)==-128);
     const int16_t expected[] = {-1,0,90,45,180,-1,135,90,270,315,-1,0,225,270,180,-1};
     for (int bits = 0; bits < 16; bits++)
         assert(ds_pov(bits&1,bits&2,bits&4,bits&8) == expected[bits]);
@@ -78,7 +81,7 @@ static void links(void) {
     Link l = {0}; uint8_t p[] = {255,255,1,0,0x20,12,128,0};
     assert(!link_receive(&l,p,sizeof p,10));
     link_sent(&l,65535,10); assert(link_receive(&l,p,sizeof p,20));
-    assert(link_connected(&l,269)); assert(!link_connected(&l,270));
+    assert(link_connected(&l,259)); assert(!link_connected(&l,260));
     assert(!link_receive(&l,p,sizeof p,21)); /* Duplicate cannot extend lease. */
     link_sent(&l,0,30); p[0] = 0; p[1] = 0;
     assert(link_receive(&l,p,sizeof p,40)); /* Sequence rollover. */
@@ -88,6 +91,10 @@ static void links(void) {
     assert(link_receive(&l,p,sizeof p,311));
     link_sent(&l,1,310); p[1] = 1; assert(!link_receive(&l,p,sizeof p,312));
     assert(l.last_rx == 311);
+    l=(Link){0}; link_sent(&l,1,100); p[1]=1;
+    assert(link_receive(&l,p,sizeof p,349));
+    assert(link_connected(&l,349) && !link_connected(&l,350));
+    assert(!link_connected(&l,99));
 }
 int main(void) {
     packets(); status(); axes(); safety_tests(); links();

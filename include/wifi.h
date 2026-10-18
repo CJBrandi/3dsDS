@@ -4,7 +4,7 @@
 /* Password stays in RAM for explicit Show/Edit; persisted only in the system profile. */
 typedef struct {
     char ssid[33], password[65], profiles[3][33], status[96];
-    WifiSecurity security;
+    WifiSecurity security, saved_security;
     unsigned slot;
     bool busy, password_saved, available;
     uint32_t error;
@@ -12,6 +12,7 @@ typedef struct {
 extern WifiSetup wifi_setup;
 void wifi_setup_init(void);
 void wifi_setup_refresh_profiles(void);
+bool wifi_setup_select(const char *ssid, WifiSecurity security);
 bool wifi_setup_connect(uint64_t now);
 void wifi_setup_poll(uint64_t now);
 void wifi_setup_cancel(void);

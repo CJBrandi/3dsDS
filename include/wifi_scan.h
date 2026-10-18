@@ -3,6 +3,7 @@
 #include "wifi_settings.h"
 #define WIFI_MAX_NETWORKS 24
 #define WIFI_SCAN_FRESH_MS 30000
+#define WIFI_SCAN_TIMEOUT_MS 10000
 
 typedef struct { char ssid[33]; uint8_t bssid[6],channel; WifiSecurity security; } WifiNetwork;
 bool wifi_parse_beacons(const uint8_t *data,size_t length,WifiNetwork *networks,size_t capacity,size_t *count);

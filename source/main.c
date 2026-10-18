@@ -26,7 +26,6 @@ static UiPage page;
 static UiPopup popup;
 static unsigned network_page;
 static bool show_password;
-static WifiSecurity remembered_security=WIFI_UNSUPPORTED;
 static Safety safety;
 static Link link_state;
 static struct sockaddr_in robot_addr;
@@ -87,6 +86,12 @@ static bool configured;
 static uint32_t lifecycle_event;
 
 static uint64_t now_ms(void) { return svcGetSystemTick() / (SYSCLOCK_ARM11 / 1000); }
+static bool timing_fault(uint64_t now,uint64_t previous) {
+    bool event=__atomic_exchange_n(&lifecycle_event,0,__ATOMIC_ACQ_REL)!=0;
+    if(!event && now>=previous && now-previous<=100) return false;
+    safety_disable(&safety); memset(&link_state,0,sizeof link_state);
+    return true;
+}
 static bool transmit(const Controls *controls, uint64_t now, bool force_disabled);
 static void lifecycle(APT_HookType hook, void *unused) {
     (void)unused;
@@ -121,7 +126,7 @@ static void save_config(void) {
     mkdir("sdmc:/3ds", 0777); mkdir(CONFIG_DIR, 0777);
     FILE *f = fopen(CONFIG_PATH ".tmp", "w");
     if (!f) { snprintf(message, sizeof message, "SD save failed; using session settings."); return; }
-    bool ok = fprintf(f, "%u %u %u %u\n", team_number, alliance, wifi_setup.slot+1, (unsigned)wifi_setup.security) > 0;
+    bool ok = fprintf(f, "%u %u %u %u\n", team_number, alliance, wifi_setup.slot+1, (unsigned)wifi_setup.saved_security) > 0;
     if (fclose(f) != 0) ok = false;
     if (!ok || rename(CONFIG_PATH ".tmp", CONFIG_PATH) != 0)
         snprintf(message, sizeof message, "SD save failed; using session settings.");
@@ -136,7 +141,7 @@ static void load_config(void) {
         memcpy(wifi_setup.ssid,wifi_setup.profiles[slot-1],33);
         wifi_setup.password_saved=wifi_setup.ssid[0]!=0;
         wifi_setup.security=fields==4 && security<=WIFI_OPEN ? (WifiSecurity)security:WIFI_UNSUPPORTED;
-        remembered_security=wifi_setup.security;
+        wifi_setup.saved_security=wifi_setup.security;
     }
     if (fields>=2 && a <= 5 && set_team(team)) {
         alliance = a;
@@ -158,6 +163,8 @@ static Calendar calendar_now(void) {
 }
 static bool transmit(const Controls *controls, uint64_t now, bool force_disabled) {
     if (sock < 0 || !configured) return false;
+    if(!link_connected(&link_state,now) || !link_state.robot.code ||
+       wifi_setup.busy || wifi_scan.scanning) safety_disable(&safety);
     uint8_t data[DS_PACKET_MAX];
     Command cmd = {sequence++, safety.enabled && !force_disabled, safety.estop, alliance};
     Calendar cal = calendar_now();
@@ -174,22 +181,33 @@ static bool transmit(const Controls *controls, uint64_t now, bool force_disabled
     link_sent(&link_state, cmd.sequence, now);
     return true;
 }
-static void receive_status(uint64_t now) {
+static bool receive_status(uint64_t now) {
     /* Bounded work per frame, including on a noisy network. */
     for (int count = 0; count < 32; ++count) {
-        uint8_t data[2048]; struct sockaddr_in peer; socklen_t len = sizeof peer;
+        /* One sentinel byte lets recvfrom expose oversized/truncated datagrams. */
+        uint8_t data[2049]; struct sockaddr_in peer; socklen_t len = sizeof peer;
         ssize_t n = recvfrom(sock, data, sizeof data, 0, (struct sockaddr *)&peer, &len);
         if (n < 0) {
             if (errno != EAGAIN && errno != EWOULDBLOCK) {
                 safety_disable(&safety); memset(&link_state, 0, sizeof link_state);
                 snprintf(message, sizeof message, "Receive failed (%d).", errno);
+                return true;
             }
             break;
         }
+        if((size_t)n>=sizeof data) continue;
         if (configured && peer.sin_family == AF_INET &&
-            peer.sin_addr.s_addr == robot_addr.sin_addr.s_addr)
-            link_receive(&link_state, data, (size_t)n, now);
+            peer.sin_addr.s_addr == robot_addr.sin_addr.s_addr &&
+            link_receive(&link_state, data, (size_t)n, now)) {
+            safety_observe_robot(&safety,&link_state.robot);
+            if(safety.estop || !link_state.robot.code) {
+                /* No queued recovery packet may erase a fault or re-arm enable. */
+                memset(link_state.valid,0,sizeof link_state.valid);
+                return true;
+            }
+        }
     }
+    return false;
 }
 static Controls read_controls(uint32_t held) {
     circlePosition left = {0}, right = {0};
@@ -223,7 +241,7 @@ static void edit_team(void) {
     safety_disable(&safety);
 }
 static bool edit_password(void) {
-    if(wifi_setup.busy || wifi_setup.security!=WIFI_WPA2) return false;
+    if(wifi_setup.busy || wifi_scan.scanning || wifi_setup.security!=WIFI_WPA2) return false;
     safety_disable(&safety);
     Controls empty={{0},0,-1}; transmit(&empty,now_ms(),true);
     SwkbdState kb;
@@ -251,15 +269,12 @@ static bool select_network(unsigned index) {
         snprintf(wifi_setup.status,sizeof wifi_setup.status,"%s is unsupported on 3DS.",wifi_security_name(n->security));
         return false;
     }
-    bool same=!strcmp(wifi_setup.ssid,n->ssid) && wifi_setup.security==n->security;
-    if(!same) wifi_wipe(wifi_setup.password,sizeof wifi_setup.password);
-    memcpy(wifi_setup.ssid,n->ssid,33); wifi_setup.security=n->security;
-    wifi_setup.password_saved=!strcmp(wifi_setup.profiles[wifi_setup.slot],n->ssid) && remembered_security==n->security;
+    if(!wifi_setup_select(n->ssid,n->security)) return false;
     show_password=false; popup=POPUP_NONE;
-    return n->security==WIFI_OPEN || edit_password();
+    return n->security==WIFI_OPEN || wifi_setup.password_saved || edit_password();
 }
 static void join_network(void) {
-    if(wifi_scan.scanning) return;
+    if(wifi_setup.busy || wifi_scan.scanning) return;
     bool found=false;
     if(wifi_scan.valid && now_ms()-wifi_scan.scanned_at<=WIFI_SCAN_FRESH_MS)
         for(unsigned i=0;i<wifi_scan.count;i++)
@@ -269,7 +284,9 @@ static void join_network(void) {
     safety_disable(&safety);
     Controls empty={{0},0,-1}; transmit(&empty,now_ms(),true);
     memset(&link_state,0,sizeof link_state);
-    if(wifi_setup_connect(now_ms())) { remembered_security=wifi_setup.security; save_config(); }
+    bool started=wifi_setup_connect(now_ms());
+    /* Profile persistence can succeed even if starting association fails. */
+    if(started || wifi_setup.password_saved) save_config();
 }
 static void draw(const Controls *c, uint64_t now, uint32_t wifi) {
     bool connected=link_connected(&link_state,now);
@@ -285,7 +302,8 @@ static void draw(const Controls *c, uint64_t now, uint32_t wifi) {
         .wifi_ssid=wifi_setup.ssid, .wifi_suggestion=recommended>=0 ? wifi_scan.networks[recommended].ssid:NULL,
         .wifi_password=wifi_setup.password, .wifi_show_password=show_password,
         .networks=wifi_scan.networks, .network_count=wifi_scan.count, .network_page=network_page,
-        .wifi_scanning=wifi_scan.scanning, .wifi_status=wifi_scan.scanning ? "Scanning nearby 2.4 GHz networks...":wifi_setup.status,
+        .wifi_scanning=wifi_scan.scanning, .wifi_status=wifi_scan.scanning ?
+            wifi_scan.error ? "Wi-Fi scan timed out; waiting for system.":"Scanning nearby 2.4 GHz networks...":wifi_setup.status,
         .wifi_busy=wifi_setup.busy || wifi_scan.scanning, .wifi_password_set=wifi_setup.password_saved || wifi_setup.password[0],
         .wifi_security=wifi_setup.security, .wifi_available=wifi_setup.available
     };
@@ -324,10 +342,7 @@ int main(int argc, char **argv) {
         bool touch_ready=false;
         while (aptMainLoop()) {
             uint64_t now = now_ms();
-            if (__atomic_exchange_n(&lifecycle_event, 0, __ATOMIC_ACQ_REL) || now - previous > 100) {
-                safety_disable(&safety); memset(&link_state, 0, sizeof link_state);
-                touch_ready=false;
-            }
+            if(timing_fault(now,previous)) touch_ready=false;
             previous = now;
             hidScanInput(); uint32_t held = hidKeysHeld(), down = hidKeysDown();
             Controls controls = read_controls(held);
@@ -346,7 +361,7 @@ int main(int argc, char **argv) {
             wifi_scan_poll(now);
             if(was_scanning && !wifi_scan.scanning && wifi_scan.error)
                 snprintf(wifi_setup.status,sizeof wifi_setup.status,"Wi-Fi scan failed (%08lX). Tap Scan to retry.",(unsigned long)wifi_scan.error);
-            receive_status(now);
+            if(receive_status(now_ms())) touch_ready=false;
             poll_feed(now,configured && wifi && !wifi_setup.busy && !wifi_scan.scanning);
             bool touch_stop=false, touch_enable=false;
             if(!(held & KEY_TOUCH)) touch_ready=true;
@@ -371,18 +386,25 @@ int main(int argc, char **argv) {
                 else if(action==UI_NETWORK_NEXT && (network_page+1)*5<wifi_scan.count) network_page++;
                 else if(action>=UI_NETWORK0 && action<=UI_NETWORK4) select_network(network_page*5+action-UI_NETWORK0);
                 else if(action==UI_WIFI_PASSWORD) edit_password();
-                else if(action==UI_WIFI_SHOW) show_password=!show_password;
+                else if(action==UI_WIFI_SHOW && !wifi_setup.busy && !wifi_scan.scanning) show_password=!show_password;
                 else if(action==UI_WIFI_SUGGEST && !wifi_setup.busy) {
                     int index=wifi_scan_recommended(team_number,now_ms());
                     if(index>=0 && select_network(index)) join_network();
                 } else if(action==UI_WIFI_CONNECT) {
-                    if(wifi_setup.busy) wifi_setup_cancel(); else join_network();
+                    if(wifi_scan.scanning) wifi_scan_cancel();
+                    else if(wifi_setup.busy) wifi_setup_cancel(); else join_network();
                 }
                 else if (action==UI_OPEN_ALLIANCE) popup=POPUP_ALLIANCE;
                 else if (action==UI_CLOSE_POPUP) popup=POPUP_NONE;
                 else if (action>=UI_RED1 && action<=UI_BLUE3) {
                     alliance=action-UI_RED1; popup=POPUP_NONE; safety_disable(&safety); if(configured) save_config();
                 } else if (action==UI_TEAM) edit_team();
+            }
+            /* Keyboards, service IPC and console parsing can consume this frame.
+             * Refresh time before evaluating readiness and before any send. */
+            now=now_ms();
+            if(timing_fault(now,previous)) {
+                touch_ready=false; touch_enable=false;
             }
             SafetyInput input={
                 .connected=configured && wifi && !wifi_setup.busy && !wifi_scan.scanning && link_connected(&link_state,now),
