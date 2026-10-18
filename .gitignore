@@ -1,0 +1,6 @@
+/build/
+/dist/*.elf
+/dist/*.smdh
+/dist/*.3dsx
+/dist/*.zip
+__pycache__/
