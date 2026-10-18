@@ -7,7 +7,7 @@ TOOLS := $(DEVKITPRO)/tools/bin
 CIA_TOOLS ?= build/cia-tools
 VERSION_MAJOR ?= 0
 VERSION_MINOR ?= 3
-VERSION_MICRO ?= 1
+VERSION_MICRO ?= 2
 CC3DS := $(DEVKITARM)/bin/arm-none-eabi-gcc
 ARCH := -march=armv6k -mtune=mpcore -mfloat-abi=hard -mtp=soft
 CFLAGS3DS := $(ARCH) -std=gnu11 -O2 -g -Wall -Wextra -Werror -D__3DS__ -mword-relocations -ffunction-sections -fdata-sections -Iinclude -I$(CTRULIB)/include -I$(PORTLIBS)/include

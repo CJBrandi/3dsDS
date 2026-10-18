@@ -1,8 +1,8 @@
-Nintendo New 3DS XL HOME Menu app for FRC roboRIO robot control.
+3dsDS v0.3.2 — Nintendo New 3DS XL HOME Menu app for FRC roboRIO robot control.
 
 **Install:** download `3dsDS.cia`, copy it to the SD card, and install with FBI. Launch 3dsDS from HOME Menu.
 
-Changes:
+Changes since v0.3.1:
 - Added Feed: a large, read-only live text box for roboRIO prints, warnings, errors, and stack traces.
 - Text wraps and automatically scrolls to the latest messages. No editing or extra controls.
 - Added an independent, nonblocking console connection with automatic reconnect.
