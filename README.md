@@ -10,7 +10,11 @@ An FRC roboRIO driver station for the **New Nintendo 3DS XL**, using its built-i
 
 These are layout renders, not console screenshots.
 
-## Install
+## Compatibility and install
+
+- Designed for **New Nintendo 3DS XL** with custom firmware and **FBI** installed. Other 3DS/2DS models are untested.
+- Requires a **2.4 GHz Wi-Fi** network using WPA2 Personal (AES) or no password.
+- Experimental **FRC roboRIO** support for practice/bench use: **Teleop only**, no FMS. Physical 3DS Wi-Fi and 2026 roboRIO compatibility are untested.
 
 1. Download **3dsDS.cia** from [Releases](https://github.com/CJBrandi/3dsDS/releases).
 2. Copy it to your 3DS SD card and install it with **FBI**.
