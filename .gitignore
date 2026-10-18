@@ -9,3 +9,6 @@ __pycache__/
 /dist/SHA256SUMS
 
 /dist/THIRD_PARTY_NOTICES.txt
+
+# Local project memory shared by chats on this machine.
+/AGENTS.md
