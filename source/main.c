@@ -15,10 +15,11 @@
 #include "protocol.h"
 #include "safety.h"
 #include "link.h"
+#include "ui.h"
 
 #define CONFIG_DIR "sdmc:/3ds/3dsDS"
 #define CONFIG_PATH CONFIG_DIR "/config.txt"
-static PrintConsole top, bottom;
+static UiPage page;
 static Safety safety;
 static Link link_state;
 static struct sockaddr_in robot_addr;
@@ -26,7 +27,7 @@ static int sock = -1;
 static uint16_t sequence;
 static uint8_t mode, alliance;
 static char target[16];
-static char message[80] = "Tap TEAM or IP to set robot address.";
+static char message[80] = "Set your robot address in Setup.";
 static bool configured;
 static uint32_t lifecycle_event;
 
@@ -152,40 +153,29 @@ static void edit_address(bool team) {
     hidScanInput(); /* Discard keyboard dismiss button edges. */
     safety_disable(&safety);
 }
-static void draw(const Controls *c, uint64_t now, uint32_t wifi) {
-    bool connected = link_connected(&link_state, now);
-    const char *modes[] = {"TELEOP", "TEST", "AUTO"};
-    consoleSelect(&top); printf("\x1b[H\x1b[2J");
-    printf("\x1b[36m  3dsDS / roboRIO\x1b[0m\n\n");
-    printf("  %s\n\n", safety.estop ? "\x1b[31mE-STOP LATCHED\x1b[0m" :
-           safety.enabled ? "\x1b[32mENABLE REQUESTED\x1b[0m" : "\x1b[33mDISABLED\x1b[0m");
-    printf("  Robot  %s\n", configured ? target : "not configured");
-    printf("  Link   %s   Wi-Fi %s\n", connected ? "CONNECTED" : "LOST", wifi ? "ON" : "OFF");
-    printf("  Code   %s\n", connected && link_state.robot.code ? "RUNNING" : "NOT READY");
-    if (connected) {
-        printf("  Battery %.2f V %s\n", link_state.robot.voltage, link_state.robot.brownout ? "BROWNOUT" : "");
-        printf("  RIO     %s  Reply age %llu ms\n", link_state.robot.enabled ? "ENABLED" : "DISABLED",
-               (unsigned long long)(now - link_state.last_rx));
-    } else printf("  Battery --     RIO state unknown\n\n");
-    printf("\n  Mode %s  Station %s%u\n", modes[mode], alliance < 3 ? "RED " : "BLUE ", alliance % 3 + 1);
-    printf("\n  Circle %4d %4d\n  C-stick%4d %4d\n", c->axes[0], c->axes[1], c->axes[2], c->axes[3]);
-    printf("  Buttons %02X   POV %d\n", c->buttons, c->pov);
-    printf("\n  %s\n", safety.arming ? "Hold START..." : "ZL is the hold-to-run switch.");
-    printf("\n  %.46s\n", message);
-    consoleSelect(&bottom); printf("\x1b[H\x1b[2J");
-    printf("  \x1b[36mDRIVER CONTROLS\x1b[0m\n\n");
-    printf("  Hold ZL + START 1s: enable\n  Release ZL: disable\n  SELECT / START: disable\n  L + R + SELECT: E-STOP\n\n");
-    printf("  Release START after arming.\n  Keep ZL held while driving.\n");
-    printf("\n  [ MODE: %-6s ]\n", modes[mode]); /* Row 10. */
-    printf("\n  [ STATION: %s%u ]\n", alliance < 3 ? "RED " : "BLUE ", alliance % 3 + 1); /* Row 12. */
-    printf("\n  [ TEAM NUMBER ]\n\n  [ ROBOT IP ADDRESS ]\n\n  [ QUIT ]\n");
-    printf("\n  Tap settings while disabled.\n  Joystick 0 / built-in controls\n");
-    if (safety.estop) printf("\n  Reset E-stop at robot; restart app.\n");
-    gfxFlushBuffers(); gfxSwapBuffers();
+static void draw(const Controls *c, uint64_t now, uint32_t wifi, bool deadman) {
+    bool connected=link_connected(&link_state,now);
+    UiModel model={
+        .connected=connected, .wifi=wifi!=0, .code=link_state.robot.code,
+        .enabled=safety.enabled, .rio_enabled=link_state.robot.enabled,
+        .estop=safety.estop, .brownout=link_state.robot.brownout,
+        .arming=safety.arming, .configured=configured, .deadman=deadman,
+        .voltage=link_state.robot.voltage,
+        .arm_progress=safety.arming ? (now-safety.arm_since)/1000.0f : 0,
+        .age_ms=connected ? (unsigned)(now-link_state.last_rx) : 0,
+        .mode=mode, .alliance=alliance, .controls=*c, .target=target, .message=message
+    };
+    ui_draw(&model,page);
 }
 int main(int argc, char **argv) {
     (void)argc; (void)argv;
-    gfxInitDefault(); consoleInit(GFX_TOP, &top); consoleInit(GFX_BOTTOM, &bottom);
+    gfxInitDefault();
+    if (!display_init()) {
+        consoleInit(GFX_TOP, NULL);
+        printf("Graphics initialization failed.\nPress START to exit.\n");
+        while (aptMainLoop()) { hidScanInput(); if (hidKeysDown() & KEY_START) break; gspWaitForVBlank(); }
+        gfxExit(); return 1;
+    }
     void *buffer = memalign(0x1000, 0x100000);
     Result result = buffer ? socInit(buffer, 0x100000) : -1;
     bool soc_ready = R_SUCCEEDED(result), ac_ready = false;
@@ -198,7 +188,7 @@ int main(int argc, char **argv) {
             fcntl(sock, F_SETFL, O_NONBLOCK) != 0)) { close(sock); sock = -1; }
     }
     if (sock < 0 || !ac_ready) {
-        consoleSelect(&top); printf("Network initialization failed.\nSOC: %08lX errno: %d\nPress START to exit.\n", (unsigned long)result, errno);
+        display_exit(); consoleInit(GFX_TOP,NULL); printf("Network initialization failed.\nSOC: %08lX errno: %d\nPress START to exit.\n", (unsigned long)result, errno);
         while (aptMainLoop()) { hidScanInput(); if (hidKeysDown() & KEY_START) break; gspWaitForVBlank(); }
     } else {
         load_config();
@@ -231,20 +221,26 @@ int main(int argc, char **argv) {
                 (held & (KEY_L | KEY_R | KEY_SELECT)) == (KEY_L | KEY_R | KEY_SELECT), neutral(&controls)
             };
             safety_step(&safety, &input, now);
-            if ((down & KEY_TOUCH) && !safety.enabled) {
+            bool touch_stop=false;
+            if (down & KEY_TOUCH) {
                 touchPosition pos; hidTouchRead(&pos);
-                int row = pos.py / 8;
-                if (pos.px >= 8 && pos.px < 310) {
-                    if (row == 10) { mode = (mode + 1) % 3; safety_disable(&safety); }
-                    else if (row == 12) { alliance = (alliance + 1) % 6; safety_disable(&safety); if (configured) save_config(); }
-                    else if (row == 14 || row == 16) edit_address(row == 14);
-                    else if (row == 18) quit = true;
-                }
+                UiAction action=ui_touch(page,pos.px,pos.py,safety.enabled);
+                if (action>=UI_TAB_DRIVE && action<=UI_TAB_INPUTS) page=action-UI_TAB_DRIVE;
+                else if (action==UI_DISABLE || action==UI_ESTOP) {
+                    safety_disable(&safety);
+                    if (action==UI_ESTOP) safety.estop=true;
+                    touch_stop=true;
+                } else if (action>=UI_TELEOP && action<=UI_AUTO) {
+                    mode=action-UI_TELEOP; safety_disable(&safety);
+                } else if (action>=UI_RED1 && action<=UI_BLUE3) {
+                    alliance=action-UI_RED1; safety_disable(&safety); if(configured) save_config();
+                } else if (action==UI_TEAM || action==UI_IP) edit_address(action==UI_TEAM);
+                else if (action==UI_QUIT) quit=true;
             }
-            if (quit || now >= next_send || (!safety.enabled && (down & (KEY_SELECT | KEY_START)))) {
+            if (quit || touch_stop || now >= next_send || (!safety.enabled && (down & (KEY_SELECT | KEY_START)))) {
                 transmit(&controls, now_ms(), quit); next_send = now_ms() + DS_PERIOD_MS;
             }
-            if (now >= next_draw) { draw(&controls, now_ms(), wifi); next_draw = now_ms() + 100; }
+            if (now >= next_draw) { draw(&controls, now_ms(), wifi, (held & KEY_ZL)!=0); next_draw = now_ms() + 33; }
             svcSleepThread(2000000); /* ~2ms input/network poll; no blocking DNS. */
         }
         safety_disable(&safety);
@@ -255,6 +251,6 @@ int main(int argc, char **argv) {
     if (sock >= 0) close(sock);
     if (ac_ready) acExit();
     if (soc_ready) socExit();
-    free(buffer); gfxExit();
+    free(buffer); display_exit(); gfxExit();
     return 0;
 }

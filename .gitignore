@@ -4,3 +4,6 @@
 /dist/*.3dsx
 /dist/*.zip
 __pycache__/
+
+/dist/*.cia
+/dist/SHA256SUMS

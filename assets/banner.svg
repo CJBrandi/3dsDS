@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="128" viewBox="0 0 256 128">
+<rect width="256" height="128" fill="#0c131d"/>
+<rect x="12" y="12" width="4" height="104" fill="#49dfbd"/>
+<text x="28" y="59" font-family="sans-serif" font-size="36" fill="#ecf4fa">3dsDS</text>
+<text x="30" y="83" font-family="sans-serif" font-size="12" fill="#49dfbd">ROBOT CONTROL</text>
+<text x="30" y="104" font-family="sans-serif" font-size="10" fill="#94aabd">Nintendo 3DS / FRC roboRIO</text>
+</svg>

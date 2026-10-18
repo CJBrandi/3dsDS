@@ -1,0 +1,100 @@
+name: Build and release
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+
+jobs:
+  tests:
+    name: Protocol, safety and UI tests
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - run: make test
+
+  build:
+    name: Build 3DSX and CIA
+    runs-on: ubuntu-24.04
+    container:
+      image: devkitpro/devkitarm@sha256:116afba8df8453961de2936ffab20dd441edf4d682856c1ec8b0e53d7ed0bbf5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Read CIA version from release tag
+        env:
+          BUILD_REF: ${{ github.ref }}
+        run: |
+          python3 - <<'PY'
+          import os, re
+          ref = os.environ['BUILD_REF']
+          version = ref.removeprefix('refs/tags/v') if ref.startswith('refs/tags/') else '0.2.0'
+          match = re.fullmatch(r'(\d+)\.(\d+)\.(\d+)(?:-[A-Za-z0-9.-]+)?', version)
+          if not match:
+              raise SystemExit('Tags must be vMAJOR.MINOR.PATCH, optionally with a prerelease suffix')
+          numbers = tuple(map(int, match.groups()))
+          if any(n > limit for n, limit in zip(numbers, (63, 63, 15))):
+              raise SystemExit('CIA version exceeds 63.63.15; choose another version')
+          with open(os.environ['GITHUB_ENV'], 'a') as f:
+              for key, n in zip(('VERSION_MAJOR', 'VERSION_MINOR', 'VERSION_MICRO'), numbers):
+                  print(f'{key}={n}', file=f)
+          PY
+      - name: Fetch checksum-verified CIA tools
+        run: make cia-tools
+      - name: Compile and verify install packages
+        run: make -j2 release
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: 3dsDS-install-files
+          if-no-files-found: error
+          path: |
+            dist/3dsDS.3dsx
+            dist/3dsDS.smdh
+            dist/3dsDS.cia
+            dist/3dsDS-sd.zip
+            dist/SHA256SUMS
+
+  release:
+    name: Publish tagged release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [tests, build]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: 3dsDS-install-files
+          path: dist
+      - name: Publish downloads
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+          GH_REPO: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          args=(--verify-tag --title "3dsDS ${RELEASE_TAG}" --notes-file docs/release-notes.md)
+          if [[ "$RELEASE_TAG" == v0.* || "$RELEASE_TAG" == *-* ]]; then
+            args+=(--prerelease)
+          fi
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG" dist/* --clobber
+          else
+            gh release create "$RELEASE_TAG" dist/* "${args[@]}"
+          fi
