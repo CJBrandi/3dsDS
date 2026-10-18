@@ -3,12 +3,13 @@
 #include "ui.h"
 void paint_begin(int s) {(void)s;}
 void paint_end(void) {}
+void paint_feed_line(float x,float y,float w,float size,uint32_t c,const char *s) {(void)x;(void)y;(void)w;(void)size;(void)c;(void)s;}
 void paint_text_centered(float x,float y,float size,uint32_t c,const char *s) {(void)x;(void)y;(void)size;(void)c;(void)s;}
 void paint_box(float x,float y,float w,float h,uint32_t c) {(void)x;(void)y;(void)w;(void)h;(void)c;}
 void paint_text(float x,float y,float size,uint32_t c,const char *s) {(void)x;(void)y;(void)size;(void)c;(void)s;}
 int main(void) {
     /* Every valid pixel stops, on every page, even with an old popup open. */
-    for(int page=0;page<3;page++) for(int popup=0;popup<3;popup++)
+    for(int page=0;page<4;page++) for(int popup=0;popup<3;popup++)
         for(int x=0;x<320;x++) for(int y=0;y<240;y++)
             assert(ui_touch(page,popup,x,y,true)==UI_DISABLE);
     assert(ui_touch(PAGE_DRIVE,POPUP_NONE,20,65,false)==UI_OPEN_ALLIANCE);
@@ -19,8 +20,11 @@ int main(void) {
     assert(ui_touch(PAGE_DRIVE,POPUP_ALLIANCE,20,220,false)==UI_CLOSE_POPUP);
     assert(ui_touch(PAGE_DRIVE,POPUP_NONE,50,105,false)==UI_NONE);
     assert(ui_touch(PAGE_DRIVE,POPUP_NONE,50,20,false)==UI_TAB_DRIVE);
-    assert(ui_touch(PAGE_DRIVE,POPUP_NONE,150,20,false)==UI_TAB_INPUTS);
-    assert(ui_touch(PAGE_DRIVE,POPUP_NONE,250,20,false)==UI_TAB_WIFI);
+    assert(ui_touch(PAGE_DRIVE,POPUP_NONE,110,20,false)==UI_TAB_INPUTS);
+    assert(ui_touch(PAGE_DRIVE,POPUP_NONE,190,20,false)==UI_TAB_WIFI);
+    assert(ui_touch(PAGE_DRIVE,POPUP_NONE,280,20,false)==UI_TAB_FEED);
+    for(int x=0;x<320;x++) for(int y=42;y<240;y++)
+        assert(ui_touch(PAGE_FEED,POPUP_NONE,x,y,false)==UI_NONE);
     assert(ui_touch(PAGE_DRIVE,POPUP_NONE,-1,65,true)==UI_NONE);
     assert(ui_touch(PAGE_DRIVE,POPUP_NONE,320,65,true)==UI_NONE);
     assert(ui_touch(PAGE_WIFI,POPUP_NONE,50,100,false)==UI_WIFI_NETWORKS);

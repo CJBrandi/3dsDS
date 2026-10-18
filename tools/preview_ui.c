@@ -25,6 +25,11 @@ void paint_text(float x,float y,float size,uint32_t c,const char *text) {
     fprintf(file,"<text x=\"%g\" y=\"%g\" font-family=\"DejaVu Sans\" font-size=\"%g\" fill=\"#%06x\">",x,y+size*.82f,size,c);
     escaped(text);fputs("</text>",file);
 }
+void paint_feed_line(float x,float y,float width,float size,uint32_t c,const char *value) {
+    /* Fixed maximum width mirrors native shrink-to-fit for unusually wide lines. */
+    fprintf(file,"<text x=\"%g\" y=\"%g\" font-family=\"DejaVu Sans\" font-size=\"%g\" textLength=\"%g\" lengthAdjust=\"spacingAndGlyphs\" fill=\"#%06x\">",x,y+size*.82f,size,strlen(value)*size*.6f>width ? width:strlen(value)*size*.6f,c);
+    escaped(value); fputs("</text>",file);
+}
 void paint_text_centered(float cx,float cy,float size,uint32_t c,const char *text) {
     fprintf(file,"<text x=\"%g\" y=\"%g\" text-anchor=\"middle\" data-center-y=\"%g\" font-family=\"DejaVu Sans\" font-size=\"%g\" fill=\"#%06x\">",cx,cy,cy,size,c);
     escaped(text);fputs("</text>",file);
@@ -38,6 +43,9 @@ int main(int argc,char **argv) {
         .wifi_ssid="FRC-1234",.wifi_suggestion="FRC-1234",.wifi_available=true,
         .wifi_status="Remembers only your last used network.",.wifi_password_set=true,.wifi_password="robotpass",.networks=networks,.network_count=5,
         .controls={{0,0,0,0},0,-1}};
+    static Feed feed;
+    feed_text(&feed,"Waiting for roboRIO console...\nRobot program starting\nRobotInit complete\nTeleop ready\nWARNING 1: Battery voltage low\n  at Robot.teleopPeriodic(Robot.java:82)\nDrive subsystem initialized\nLeft encoder: 124.5\nRight encoder: 123.9\n");
+    m.feed=&feed;
     UiPage page=argc>2 ? (UiPage)atoi(argv[2]):PAGE_DRIVE;
     UiPopup popup=POPUP_NONE;
     if(argc>3) {

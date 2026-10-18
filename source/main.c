@@ -8,6 +8,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
+#include <sys/select.h>
 #include <sys/stat.h>
 #include <sys/time.h>
 #include <time.h>
@@ -31,6 +32,53 @@ static Link link_state;
 static struct sockaddr_in robot_addr;
 static int sock = -1;
 static uint16_t sequence;
+static Feed feed;
+static int feed_sock=-1;
+static bool feed_connecting;
+static uint64_t feed_deadline, feed_retry;
+static void close_feed(void) {
+    if(feed_sock>=0) close(feed_sock);
+    feed_sock=-1; feed_connecting=false;
+    feed_reset_stream(&feed);
+}
+/* The dedicated WPILib console port carries the DS prints/errors without
+ * requiring joystick-descriptor or other outgoing TCP commands. */
+static void poll_feed(uint64_t now,bool available) {
+    if(!available) { close_feed(); return; }
+    if(feed_sock<0) {
+        if(now<feed_retry) return;
+        feed_retry=now+3000;
+        feed_sock=socket(AF_INET,SOCK_STREAM,0);
+        if(feed_sock<0) return;
+        if(fcntl(feed_sock,F_SETFL,O_NONBLOCK)!=0) { close_feed(); return; }
+        struct sockaddr_in peer=robot_addr; peer.sin_port=htons(1741);
+        int result=connect(feed_sock,(struct sockaddr *)&peer,sizeof peer);
+        if(result<0 && errno!=EINPROGRESS && errno!=EWOULDBLOCK) { close_feed(); return; }
+        feed_connecting=result<0; feed_deadline=now+2000;
+    }
+    if(feed_connecting) {
+        fd_set writable,errors; FD_ZERO(&writable); FD_ZERO(&errors);
+        FD_SET(feed_sock,&writable); FD_SET(feed_sock,&errors);
+        struct timeval timeout={0};
+        int result=select(feed_sock+1,NULL,&writable,&errors,&timeout);
+        if(result<0 || now>=feed_deadline) { close_feed(); return; }
+        if(!result) return;
+        int error=0; socklen_t length=sizeof error;
+        if(getsockopt(feed_sock,SOL_SOCKET,SO_ERROR,&error,&length)<0 || error) { close_feed(); return; }
+        feed_connecting=false;
+    }
+    for(unsigned i=0;i<4;i++) {
+        uint8_t data[1024]; ssize_t n=recv(feed_sock,data,sizeof data,0);
+        if(n>0) feed_receive(&feed,data,(size_t)n);
+        else {
+            if(!n || (errno!=EAGAIN && errno!=EWOULDBLOCK)) {
+                close_feed(); feed_retry=now+3000;
+                feed_text(&feed,"\nConsole disconnected. Reconnecting...\n");
+            }
+            break;
+        }
+    }
+}
 static uint8_t alliance;
 static unsigned team_number;
 static char target[16];
@@ -44,6 +92,7 @@ static void lifecycle(APT_HookType hook, void *unused) {
     (void)unused;
     /* libctru invokes these hooks synchronously before entering HOME/sleep. */
     safety_disable(&safety);
+    close_feed();
     if(wifi_setup.busy) wifi_setup_cancel();
     wifi_scan_cancel(); show_password=false;
     if(hook==APTHOOK_ONSUSPEND || hook==APTHOOK_ONSLEEP || hook==APTHOOK_ONEXIT) {
@@ -60,6 +109,10 @@ static bool set_team(unsigned team) {
     memset(&robot_addr,0,sizeof robot_addr);
     robot_addr.sin_family=AF_INET; robot_addr.sin_port=htons(DS_PORT);
     robot_addr.sin_addr=address;
+    if(!configured || team_number!=team) {
+        close_feed(); feed_clear(&feed); feed_retry=0;
+        feed_text(&feed,"Waiting for roboRIO console...\n");
+    }
     team_number=team; configured=true;
     memset(&link_state,0,sizeof link_state); safety_disable(&safety);
     return true;
@@ -228,7 +281,7 @@ static void draw(const Controls *c, uint64_t now, uint32_t wifi) {
         .configured=configured, .neutral=neutral(c),
         .voltage=link_state.robot.voltage,
         .age_ms=connected ? (unsigned)(now-link_state.last_rx) : 0,
-        .alliance=alliance, .team=team_number, .controls=*c, .target=target, .message=message,
+        .feed=&feed, .alliance=alliance, .team=team_number, .controls=*c, .target=target, .message=message,
         .wifi_ssid=wifi_setup.ssid, .wifi_suggestion=recommended>=0 ? wifi_scan.networks[recommended].ssid:NULL,
         .wifi_password=wifi_setup.password, .wifi_show_password=show_password,
         .networks=wifi_scan.networks, .network_count=wifi_scan.count, .network_page=network_page,
@@ -240,6 +293,7 @@ static void draw(const Controls *c, uint64_t now, uint32_t wifi) {
 }
 int main(int argc, char **argv) {
     (void)argc; (void)argv;
+    feed_text(&feed,"Waiting for roboRIO console...\n");
     gfxInitDefault();
     if (!display_init()) {
         consoleInit(GFX_TOP, NULL);
@@ -293,13 +347,14 @@ int main(int argc, char **argv) {
             if(was_scanning && !wifi_scan.scanning && wifi_scan.error)
                 snprintf(wifi_setup.status,sizeof wifi_setup.status,"Wi-Fi scan failed (%08lX). Tap Scan to retry.",(unsigned long)wifi_scan.error);
             receive_status(now);
+            poll_feed(now,configured && wifi && !wifi_setup.busy && !wifi_scan.scanning);
             bool touch_stop=false, touch_enable=false;
             if(!(held & KEY_TOUCH)) touch_ready=true;
             if ((down & KEY_TOUCH) && touch_ready) {
                 touch_ready=false;
                 touchPosition pos; hidTouchRead(&pos);
                 UiAction action=ui_touch(page,popup,pos.px,pos.py,safety.enabled);
-                if (action>=UI_TAB_DRIVE && action<=UI_TAB_WIFI) {
+                if (action>=UI_TAB_DRIVE && action<=UI_TAB_FEED) {
                     page=action-UI_TAB_DRIVE; show_password=false;
                     if(page==PAGE_WIFI && !wifi_setup.busy && !wifi_scan.scanning) {
                         safety_disable(&safety); wifi_scan_start(now_ms()); network_page=0;
@@ -350,6 +405,7 @@ int main(int argc, char **argv) {
         for (int i = 0; i < 3; ++i) { transmit(&empty, now_ms(), true); svcSleepThread(20000000); }
         aptUnhook(&hook);
     }
+    close_feed();
     if (sock >= 0) close(sock);
     if (ac_ready) { wifi_scan_exit(); wifi_setup_exit(); acExit(); }
     if (soc_ready) socExit();

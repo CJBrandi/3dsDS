@@ -40,6 +40,15 @@ void paint_text(float x,float y,float size,uint32_t rgb,const char *value) {
     C2D_TextParse(&text,text_buffer,value);
     C2D_DrawText(&text,C2D_WithColor,x,y,0,size/30.0f,size/30.0f,color(rgb));
 }
+void paint_feed_line(float x,float y,float width,float size,uint32_t rgb,const char *value) {
+    if(!frame) return;
+    C2D_Text text;
+    C2D_TextParse(&text,text_buffer,value);
+    float w;
+    C2D_TextGetDimensions(&text,size/30.0f,size/30.0f,&w,NULL);
+    float sx=w>width ? size/30.0f*width/w : size/30.0f;
+    C2D_DrawText(&text,C2D_WithColor,x,y,0,sx,size/30.0f,color(rgb));
+}
 void paint_text_centered(float cx,float cy,float size,uint32_t rgb,const char *value) {
     if(!frame) return;
     C2D_Text text;

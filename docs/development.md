@@ -9,7 +9,9 @@
 - Robot-code bit from trace byte 4 (`0x20`); battery from bytes 5–6 with a `/256` fraction. These correct the attached Python implementation's telemetry parsing.
 - Replies must come from the configured robot IPv4 address, have a valid header/tag layout, echo a recently sent sequence, and advance the response sequence. Duplicates, old replies, and malformed packets cannot refresh link health. This is freshness checking, not cryptographic authentication.
 - Date tags are resent while disconnected or requested by the robot. The calendar uses the console's clock as UTC; set that clock correctly if robot timestamps matter.
-- No TCP joystick descriptors, robot console/error stream, NetworkTables/dashboard, code deployment, reboot commands, FMS, or automatic match timing. UDP joystick values work independently of those features in the reference protocol, but name/type metadata queries may return defaults.
+- Feed is a read-only, automatically scrolling console for robot prints, warnings, errors, locations, and call stacks. It connects to the configured robot's dedicated TCP 1741 console port, as used by WPILib's console viewer. Nonblocking connect/read, a two-second connection timeout, three-second retry interval, and a four-KiB read budget per loop keep console traffic bounded. It runs independently of the UDP enable/freshness path; console traffic cannot establish robot readiness.
+- Console framing accepts split/coalesced messages and zero-length keepalives, validates error string lengths, and resets partial frames on reconnect/HOME/sleep/team changes. The text box keeps the latest 17 wrapped lines (46 characters each); older text falls off. Tabs become spaces, CR is ignored, and other non-printable/non-ASCII bytes become `?`. No SD logging, text editing, clear/filter controls, or outgoing console commands. Changing teams clears the text. This is console output, not NetworkTables or a dump of every UDP telemetry extension.
+- No TCP joystick descriptors, NetworkTables/dashboard, code deployment, reboot commands, FMS, or automatic match timing. UDP joystick values work independently of those features in the reference protocol, but name/type metadata queries may return defaults.
 
 ## Build and test
 
@@ -24,7 +26,7 @@ make test       # host C compiler + libmbedtls-dev; address/undefined sanitizers
 make preview   # host SVG layout preview
 ```
 
-`make test` requires a host C compiler and `libmbedtls-dev`, but not the 3DS SDK. Wi-Fi tests use a fake AC service and a known WPA2 PSK vector to check profile staging, save failures, reconnect, timeout, cancellation, and key/password handling. It also checks every lower-screen pixel on every page/popup state maps to Disable while enabled, dropdown isolation, and team-only setup. It exercises exact packet vectors, date tags, telemetry offsets, malformed/truncated replies, all POV combinations, deadzones, touch enable/disable, each disabling condition, recovery without automatic enable, E-stop latching, duplicate/outdated replies, and sequence rollover. `make release` outputs `dist/3dsDS.cia`, `THIRD_PARTY_NOTICES.txt`, and `SHA256SUMS`; `make clean` removes generated outputs.
+`make test` requires a host C compiler and `libmbedtls-dev`, but not the 3DS SDK. Wi-Fi tests use a fake AC service and a known WPA2 PSK vector to check profile staging, save failures, reconnect, timeout, cancellation, and key/password handling. Console parser tests cover fragmented/coalesced frames, keepalives, malformed lengths, errors/warnings/call stacks, stream reset, maximum frame size, and bounded text wrapping. It also checks every lower-screen pixel on every page/popup state maps to Disable while enabled, dropdown isolation, and team-only setup. It exercises exact packet vectors, date tags, telemetry offsets, malformed/truncated replies, all POV combinations, deadzones, touch enable/disable, each disabling condition, recovery without automatic enable, E-stop latching, duplicate/outdated replies, and sequence rollover. `make release` outputs `dist/3dsDS.cia`, `THIRD_PARTY_NOTICES.txt`, and `SHA256SUMS`; `make clean` removes generated outputs.
 
 ### Bench check without robot hardware
 
@@ -66,4 +68,6 @@ The user-provided `nexus.py` was treated as protocol reference material, not as 
 - [devkitPro libctru input implementation](https://github.com/devkitPro/libctru/blob/master/libctru/source/services/hid.c)
 - [Mbed TLS license and notice](THIRD_PARTY_NOTICES.txt)
 - [devkitPro socket example](https://github.com/devkitPro/3ds-examples/blob/master/network/sockets/source/sockets.c)
+- [WPILib console connection and framing](https://github.com/wpilibsuite/vscode-wpilib/blob/6f10e0331d47551e68f6fb469b601eb4638323d6/vscode-wpilib/src/riolog/rioconsole.ts)
+- [WPILib console message fields](https://github.com/wpilibsuite/vscode-wpilib/blob/6f10e0331d47551e68f6fb469b601eb4638323d6/vscode-wpilib/src/riolog/shared/message.ts)
 - [WPILib joystick access](https://docs.wpilib.org/en/stable/docs/software/basic-programming/joystick.html)

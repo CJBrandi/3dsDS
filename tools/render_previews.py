@@ -26,7 +26,7 @@ def fix_centered_text(path):
     tree.write(path,encoding="unicode")
 for path in (root/"docs/top.svg",root/"docs/bottom.svg"):
     fix_centered_text(path)
-scenes = [("drive", 0, None), ("inputs", 1, None), ("wifi", 2, None),
+scenes = [("drive", 0, None), ("inputs", 1, None), ("wifi", 2, None), ("feed", 3, None),
           ("enabled", 0, "enabled"), ("alliance-open", 0, "alliance"),
           ("networks-open", 2, "networks"), ("password-show", 2, "show"), ("wifi-missing",2,"missing")]
 for name, page, popup in scenes:
@@ -41,7 +41,7 @@ for name, page, popup in scenes:
 subprocess.run(["rsvg-convert", str(root / "docs/top.svg"), "-o", str(out / "status.png")], check=True)
 font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 14)
 def sheet(filename, items):
-    result = Image.new("RGB", (664, 550), "#050a10")
+    result = Image.new("RGB", (664, ((len(items)+1)//2)*275), "#050a10")
     draw = ImageDraw.Draw(result)
     for i, (name, label) in enumerate(items):
         x, y = 8 + (i % 2) * 332, 8 + (i // 2) * 275
@@ -49,15 +49,16 @@ def sheet(filename, items):
         result.paste(Image.open(out / (name + ".png")), (x, y + 25))
     result.save(out / filename)
 sheet("screens-closed.png", [("drive", "Drive / alliance and team"), ("inputs", "Inputs"),
-                             ("wifi", "Wi-Fi / selector closed"), ("enabled", "Full-screen Disable")])
+                             ("wifi", "Wi-Fi / selector closed"), ("feed", "Feed / live robot console"),
+                             ("enabled", "Full-screen Disable"), ("wifi-missing", "Wi-Fi / no team network found")])
 sheet("selectors-open.png", [("alliance-open", "Alliance selector open"), ("wifi-missing", "Wi-Fi / no team network found"),
                              ("networks-open", "Found networks selector"), ("password-show", "Wi-Fi / password visible")])
 result = Image.new("RGB", (440, 520), "#050a10")
 result.paste(Image.open(out / "status.png"), (20, 12))
 result.paste(Image.open(out / "drive.png"), (60, 266))
 result.save(root / "docs/ui-preview.png")
-result = Image.new("RGB", (660, 500), "#050a10")
-for name, xy in [("drive", (0, 0)), ("inputs", (340, 0)), ("enabled", (0, 260)), ("wifi", (340, 260))]:
+result = Image.new("RGB", (660, 760), "#050a10")
+for name, xy in [("drive", (0, 0)), ("inputs", (340, 0)), ("enabled", (0, 260)), ("wifi", (340, 260)), ("feed", (0, 520)), ("wifi-missing", (340, 520))]:
     result.paste(Image.open(out / (name + ".png")), xy)
 result.save(root / "docs/ui-states.png")
 print(out)

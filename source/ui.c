@@ -66,10 +66,16 @@ void ui_draw(const UiModel *m, UiPage page, UiPopup popup) {
         paint_end();
         return;
     }
-    button(8,6,96,30,"Drive",page==PAGE_DRIVE,false);
-    button(112,6,96,30,"Inputs",page==PAGE_INPUTS,false);
-    button(216,6,96,30,"Wi-Fi",page==PAGE_WIFI,false);
-    if (page == PAGE_DRIVE) {
+    button(8,6,70,30,"Drive",page==PAGE_DRIVE,false);
+    button(86,6,70,30,"Inputs",page==PAGE_INPUTS,false);
+    button(164,6,70,30,"Wi-Fi",page==PAGE_WIFI,false);
+    button(242,6,70,30,"Feed",page==PAGE_FEED,false);
+    if (page == PAGE_FEED) {
+        box(8,42,304,192,LINE);
+        box(9,43,302,190,PANEL);
+        for(unsigned i=0;i<FEED_LINES;i++)
+            paint_feed_line(14,47+i*10.5f,292,10,WHITE,m->feed ? m->feed->lines[i] : i==0 ? "Waiting for roboRIO console...":"");
+    } else if (page == PAGE_DRIVE) {
         text(12,46,9,MUTED,"ALLIANCE STATION");
         snprintf(s,sizeof s,"%s %u",m->alliance<3 ? "RED":"BLUE",m->alliance%3+1);
         button(12,61,296,31,s,false,false);
@@ -175,7 +181,7 @@ UiAction ui_touch(UiPage page,UiPopup popup,int x,int y,bool enabled) {
         }
         return UI_CLOSE_POPUP;
     }
-    for(int i=0;i<3;i++) if(inside(x,y,8+104*i,6,96,30)) return UI_TAB_DRIVE+i;
+    for(int i=0;i<4;i++) if(inside(x,y,8+78*i,6,70,30)) return UI_TAB_DRIVE+i;
     if(page==PAGE_DRIVE) {
         if(inside(x,y,12,61,296,31)) return UI_OPEN_ALLIANCE;
         if(inside(x,y,12,118,296,31)) return UI_TEAM;
