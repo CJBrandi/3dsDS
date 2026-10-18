@@ -8,8 +8,10 @@ import urllib.request
 from zipfile import ZipFile
 
 TOOLS = [
-    ("makerom", "https://github.com/3DSGuy/Project_CTR/releases/download/makerom-v0.19.0/makerom-v0.19.0-ubuntu_x86_64.zip",
-     "287b809dec064e0ad597e3d272c49ecb7eed41693d5ee6fef9d8a8aa24c2497e", "makerom"),
+    # 0.19.0 aliases version-index names with its own version macros and loses
+    # the title's minor field. Keep 0.18.4 until that upstream defect is fixed.
+    ("makerom", "https://github.com/3DSGuy/Project_CTR/releases/download/makerom-v0.18.4/makerom-v0.18.4-ubuntu_x86_64.zip",
+     "dd596854718c195c6e3229286be485b122921715555af8ae5cf8e9a465d9f970", "makerom"),
     ("bannertool", "https://github.com/diasurgical/bannertool/releases/download/1.2.0/bannertool.zip",
      "69768596f836acb3e3aeaa66e47c6ba560dde813c6dfcd33c8afc25fe29b7524", "linux-x86_64/bannertool"),
 ]

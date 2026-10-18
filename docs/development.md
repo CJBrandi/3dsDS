@@ -55,14 +55,16 @@ Before normal use, verify disabled startup, axis signs, touch enable/disable, Wi
 
 [Build status](https://github.com/CJBrandi/3dsDS/actions/workflows/build-release.yml)
 
-Every push to `main` and each pull request runs host tests and cross-compiles with a pinned official devkitPro container. CIA packaging runs on the Ubuntu 24.04 host because makerom requires a newer glibc than the SDK image. The install artifacts are verified before upload. Artifacts can be downloaded from the workflow run. Creating a version tag publishes a GitHub Release automatically after both jobs pass:
+Every push to `main` and each pull request runs host tests and cross-compiles with a pinned official devkitPro container. CIA packaging runs on the Ubuntu 24.04 host using checksum-pinned makerom 0.18.4 and bannertool 1.2.0. The install artifacts are verified before upload. Artifacts can be downloaded from the workflow run. Creating a version tag publishes a GitHub Release automatically after both jobs pass:
 
 ```sh
-git tag v0.3.2
-git push origin v0.3.2
+git tag v0.3.3
+git push origin v0.3.3
 ```
 
 Tags must use `vMAJOR.MINOR.PATCH`, optionally with a prerelease suffix. CIA version fields support major/minor 0–63 and patch 0–15; the workflow validates this and puts the version into the CIA. Tags beginning with `v0.` or containing a prerelease suffix are published as prereleases. Main/PR builds have read-only repository permissions; only the tag release job receives release write permission. The workflow pins third-party actions to commits and verifies the CIA tool download hashes.
+
+Packaging passes the complete encoded title version with makerom `-ver` and verifies it in the TMD. Makerom 0.19.0 has a [version-macro/index collision](https://github.com/3DSGuy/Project_CTR/blob/makerom-v0.19.0/makerom/src/user_settings.c) that loses the title's minor version with both split and full-version options; 0.18.4 passes the embedded-version check. Changes to the Makefile also invalidate the CIA target; command-line version overrides still require forcing CIA regeneration when reusing an existing build tree. The unpublished v0.3.2 release workflow was cancelled after the version check discovered the issue; its tag is retained and v0.3.3 is the next release.
 
 The GUI uses nonblocking GPU frame acquisition to avoid waiting on graphics in the network loop. Run `make preview` for host-rendered SVG layouts. The preview includes Wi-Fi setup and measured centering; physical console font rendering and Wi-Fi profile changes still require hardware validation.
 

@@ -40,7 +40,7 @@ jobs:
           python3 - <<'PY'
           import os, re
           ref = os.environ['BUILD_REF']
-          version = ref.removeprefix('refs/tags/v') if ref.startswith('refs/tags/') else '0.3.2'
+          version = ref.removeprefix('refs/tags/v') if ref.startswith('refs/tags/') else '0.3.3'
           match = re.fullmatch(r'(\d+)\.(\d+)\.(\d+)(?:-[A-Za-z0-9.-]+)?', version)
           if not match:
               raise SystemExit('Tags must be vMAJOR.MINOR.PATCH, optionally with a prerelease suffix')
@@ -64,8 +64,8 @@ jobs:
           build/cia-tools/bannertool makebanner -i assets/banner.png -a assets/silence.wav -o build/banner.bnr
           build/cia-tools/makerom -f cia -o dist/3dsDS.cia -target t -rsf assets/app.rsf \
             -elf dist/3dsDS.elf -icon dist/3dsDS.smdh -banner build/banner.bnr \
-            -major "$VERSION_MAJOR" -minor "$VERSION_MINOR" -micro "$VERSION_MICRO"
-          python3 tools/check_artifacts.py
+            -ver "$(( VERSION_MAJOR * 1024 + VERSION_MINOR * 16 + VERSION_MICRO ))"
+          python3 tools/check_artifacts.py --version "$VERSION_MAJOR.$VERSION_MINOR.$VERSION_MICRO"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: 3dsDS-install-files

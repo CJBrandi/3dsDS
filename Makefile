@@ -7,7 +7,7 @@ TOOLS := $(DEVKITPRO)/tools/bin
 CIA_TOOLS ?= build/cia-tools
 VERSION_MAJOR ?= 0
 VERSION_MINOR ?= 3
-VERSION_MICRO ?= 2
+VERSION_MICRO ?= 3
 CC3DS := $(DEVKITARM)/bin/arm-none-eabi-gcc
 ARCH := -march=armv6k -mtune=mpcore -mfloat-abi=hard -mtp=soft
 CFLAGS3DS := $(ARCH) -std=gnu11 -O2 -g -Wall -Wextra -Werror -D__3DS__ -mword-relocations -ffunction-sections -fdata-sections -Iinclude -I$(CTRULIB)/include -I$(PORTLIBS)/include
@@ -53,8 +53,8 @@ cia-tools:
 	python3 tools/fetch_cia_tools.py $(CIA_TOOLS)
 build/banner.bnr: assets/banner.png assets/silence.wav | build
 	$(CIA_TOOLS)/bannertool makebanner -i assets/banner.png -a assets/silence.wav -o $@
-dist/3dsDS.cia: dist/3dsDS.elf dist/3dsDS.smdh build/banner.bnr assets/app.rsf
-	$(CIA_TOOLS)/makerom -f cia -o $@ -target t -rsf assets/app.rsf -elf dist/3dsDS.elf -icon dist/3dsDS.smdh -banner build/banner.bnr -major $(VERSION_MAJOR) -minor $(VERSION_MINOR) -micro $(VERSION_MICRO)
+dist/3dsDS.cia: dist/3dsDS.elf dist/3dsDS.smdh build/banner.bnr assets/app.rsf Makefile
+	$(CIA_TOOLS)/makerom -f cia -o $@ -target t -rsf assets/app.rsf -elf dist/3dsDS.elf -icon dist/3dsDS.smdh -banner build/banner.bnr -ver $$(( $(VERSION_MAJOR) * 1024 + $(VERSION_MINOR) * 16 + $(VERSION_MICRO) ))
 cia: dist/3dsDS.cia
 release: all cia
-	python3 tools/check_artifacts.py
+	python3 tools/check_artifacts.py --version $(VERSION_MAJOR).$(VERSION_MINOR).$(VERSION_MICRO)

@@ -1,4 +1,4 @@
-3dsDS v0.3.2 — Nintendo New 3DS XL HOME Menu app for FRC roboRIO robot control.
+3dsDS v0.3.3 — Nintendo New 3DS XL HOME Menu app for FRC roboRIO robot control.
 
 **Install:** download `3dsDS.cia`, copy it to the SD card, and install with FBI. Launch 3dsDS from HOME Menu.
 
@@ -11,6 +11,7 @@ Changes since v0.3.1:
 - Corrected negative joystick travel to reach −1.0 in WPILib; reject oversized/truncated UDP status packets.
 - Fixed Wi-Fi saved-security persistence, edited-password reuse, service-error handling and cancellation during a network switch.
 - Added scan timeout reporting, stricter infrastructure/security parsing, safe SSID display labels and accurate Enable guidance during Wi-Fi operations.
+- Corrected CIA version encoding and added an embedded-version check before publishing downloads. The unpublished v0.3.2 attempt was cancelled; its tag was preserved.
 
 Wi-Fi still detects security automatically, recommends only team networks found in a fresh scan, and remembers one last-used connection. The password field supports the native keyboard and Show/Hide.
 
